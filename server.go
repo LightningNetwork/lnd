@@ -111,6 +111,7 @@ type server struct {
 	outboundPeers map[string]*peer
 
 	peerConnectedListeners map[string][]chan<- struct{}
+	peerSequence           map[string]byte
 
 	persistentPeers        map[string]struct{}
 	persistentPeersBackoff map[string]time.Duration
@@ -265,6 +266,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		inboundPeers:           make(map[string]*peer),
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- struct{}),
+		peerSequence:           make(map[string]byte),
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -1918,14 +1920,28 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 // utilize the ordering of the local and remote public key. If we didn't use
 // such a tie breaker, then we risk _both_ connections erroneously being
 // dropped.
-func shouldDropLocalConnection(local, remote *btcec.PublicKey) bool {
+func (s *server) shouldDropLocalConnection(local, remote *btcec.PublicKey) bool {
 	localPubBytes := local.SerializeCompressed()
 	remotePubPbytes := remote.SerializeCompressed()
 
 	// The connection that comes from the node with a "smaller" pubkey
 	// should be kept. Therefore, if our pubkey is "greater" than theirs, we
 	// should drop our established connection.
-	return bytes.Compare(localPubBytes, remotePubPbytes) > 0
+	supposedToDrop := bytes.Compare(localPubBytes, remotePubPbytes) > 0
+
+	pubStr := string(remotePubPbytes)
+
+	// Lookup the current sequence number for this peer. If no entry is
+	// found, we start in state 0. We take the states mod 3 so that we
+	// the sequence eventually terminates, without making assumptions about
+	// the starting states of the peers.
+	state := s.peerSequence[pubStr]
+	s.peerSequence[pubStr] = (state + 1) % 3
+
+	// Stay honest to the protocol only if we are in state 0.
+	stayHonest := state == 0
+
+	return supposedToDrop == stayHonest
 }
 
 // InboundPeerConnected initializes a new peer in response to a new inbound
@@ -1986,7 +2002,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// we'll close out this connection s.t there's only a single
 		// connection between us.
 		localPub := s.identityPriv.PubKey()
-		if !shouldDropLocalConnection(localPub, nodePub) {
+		if !s.shouldDropLocalConnection(localPub, nodePub) {
 			srvrLog.Warnf("Received inbound connection from "+
 				"peer %x, but already connected, dropping conn",
 				nodePub.SerializeCompressed())
@@ -2093,7 +2109,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// so, in order to ensure we don't have any duplicate
 		// connections.
 		localPub := s.identityPriv.PubKey()
-		if shouldDropLocalConnection(localPub, nodePub) {
+		if s.shouldDropLocalConnection(localPub, nodePub) {
 			srvrLog.Warnf("Established outbound connection to "+
 				"peer %x, but already connected, dropping conn",
 				nodePub.SerializeCompressed())
