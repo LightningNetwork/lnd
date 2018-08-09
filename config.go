@@ -1061,13 +1061,6 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			daemonName = "ltcd"
 		}
 
-		// If only ONE of RPCUser or RPCPass is set, we assume the
-		// user did that unintentionally.
-		if conf.RPCUser != "" || conf.RPCPass != "" {
-			return fmt.Errorf("please set both or neither of "+
-				"%[1]v.rpcuser, %[1]v.rpcpass", daemonName)
-		}
-
 		switch net {
 		case bitcoinChain:
 			confDir = conf.Dir
@@ -1089,13 +1082,6 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 			daemonName = "bitcoind"
 		case litecoinChain:
 			daemonName = "litecoind"
-		}
-		// If only one or two of the parameters are set, we assume the
-		// user did that unintentionally.
-		if conf.RPCUser != "" || conf.RPCPass != "" || conf.ZMQPath != "" {
-			return fmt.Errorf("please set all or none of "+
-				"%[1]v.rpcuser, %[1]v.rpcpass, "+
-				"and %[1]v.zmqpath", daemonName)
 		}
 
 		switch net {
@@ -1129,7 +1115,12 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 				" %v, cannot start w/o RPC connection",
 				err)
 		}
-		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
+		if nConf.RPCUser == "" {
+			nConf.RPCUser = rpcUser
+		}
+		if nConf.RPCPass == "" {
+			nConf.RPCPass = rpcPass
+		}
 	case "bitcoind", "litecoind":
 		nConf := nodeConfig.(*bitcoindConfig)
 		rpcUser, rpcPass, zmqPath, err := extractBitcoindRPCParams(confFile)
@@ -1138,7 +1129,15 @@ func parseRPCParams(cConfig *chainConfig, nodeConfig interface{}, net chainCode,
 				" %v, cannot start w/o RPC connection",
 				err)
 		}
-		nConf.RPCUser, nConf.RPCPass, nConf.ZMQPath = rpcUser, rpcPass, zmqPath
+		if nConf.RPCUser == "" {
+			nConf.RPCUser = rpcUser
+		}
+		if nConf.RPCPass == "" {
+			nConf.RPCPass = rpcPass
+		}
+		if nConf.ZMQPath == "" {
+			nConf.ZMQPath = zmqPath
+		}
 	}
 
 	fmt.Printf("Automatically obtained %v's RPC credentials\n", daemonName)
