@@ -51,6 +51,11 @@ type Channel struct {
 	// Node is the peer that this channel has been established with.
 	Node NodeID
 
+	// Disabled is true if the remote channel policy indicates that this
+	// node is offline. If no remote edge policy is known, we assume the
+	// node is online.
+	Disabled bool
+
 	// TODO(roasbeef): also add other traits?
 	//  * fee, timelock, etc
 }

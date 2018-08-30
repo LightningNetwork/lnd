@@ -174,7 +174,7 @@ type testGraph interface {
 	ChannelGraph
 
 	addRandChannel(*btcec.PublicKey, *btcec.PublicKey,
-		btcutil.Amount) (*ChannelEdge, *ChannelEdge, error)
+		btcutil.Amount, bool) (*ChannelEdge, *ChannelEdge, error)
 }
 
 func newDiskChanGraph() (testGraph, func(), error) {
@@ -319,7 +319,9 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// For this set, we'll load the memory graph with two
 			// nodes, and a random channel connecting them.
 			const chanCapacity = btcutil.SatoshiPerBitcoin
-			edge1, edge2, err := graph.addRandChannel(nil, nil, chanCapacity)
+			edge1, edge2, err := graph.addRandChannel(
+				nil, nil, chanCapacity, false,
+			)
 			if err != nil {
 				t1.Fatalf("unable to generate channel: %v", err)
 			}
@@ -359,6 +361,79 @@ func TestConstrainedPrefAttachmentSelectTwoVertexes(t *testing.T) {
 					t1.Fatalf("max channel size should be allocated, "+
 						"instead %v was: ", maxChanSize)
 				}
+			}
+		})
+		if !success {
+			break
+		}
+	}
+}
+
+// TestConstrainedPrefAttachmentIgnoreDisabled asserts that the attachment
+// heuristics will ignore nodes if their remote party reports them as being
+// disabled.
+func TestConstrainedPrefAttachmentIgnoreDisabled(t *testing.T) {
+	t.Parallel()
+
+	prand.Seed(time.Now().Unix())
+
+	const (
+		minChanSize = 0
+		maxChanSize = btcutil.Amount(btcutil.SatoshiPerBitcoin)
+		chanLimit   = 3
+		threshold   = 0.5
+	)
+
+	skipNodes := make(map[NodeID]struct{})
+	for _, graph := range chanGraphs {
+		success := t.Run(graph.name, func(t1 *testing.T) {
+			graph, cleanup, err := graph.genFunc()
+			if err != nil {
+				t1.Fatalf("unable to create graph: %v", err)
+			}
+			if cleanup != nil {
+				defer cleanup()
+			}
+
+			// First, we'll generate a random key that represents
+			// "us", and create a new instance of the heuristic
+			// with our set parameters.
+			self, err := randKey()
+			if err != nil {
+				t1.Fatalf("unable to generate self key: %v", err)
+			}
+			prefAttach := NewConstrainedPrefAttachment(
+				minChanSize, maxChanSize, chanLimit, threshold,
+			)
+
+			// For this set, we'll load the memory graph with two
+			// nodes, and a random channel connecting them. We'll
+			// mark each channel as disabled, to test that we ignore
+			// them during selection.
+			const chanCapacity = btcutil.SatoshiPerBitcoin
+			_, _, err = graph.addRandChannel(
+				nil, nil, chanCapacity, true,
+			)
+			if err != nil {
+				t1.Fatalf("unable to generate channel: %v", err)
+			}
+
+			// Next, we'll attempt to select a set of candidates,
+			// passing 10 BTC for the amount of wallet funds. This
+			// should return an empty slice of directives, since
+			// both nodes report the other as disabled.
+			const walletFunds = btcutil.SatoshiPerBitcoin * 10
+			directives, err := prefAttach.Select(
+				self, graph, walletFunds, 2, skipNodes,
+			)
+			if err != nil {
+				t1.Fatalf("unable to select attachment "+
+					"directives: %v", err)
+			}
+			if len(directives) != 0 {
+				t1.Fatalf("zero attachment directives "+
+					"should have been returned instead %v were",
+					len(directives))
 			}
 		})
 		if !success {
@@ -467,13 +542,14 @@ func TestConstrainedPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 
 			// Next, we'll add 3 nodes to the graph, creating an
 			// "open triangle topology".
-			edge1, _, err := graph.addRandChannel(nil, nil,
-				chanCapacity)
+			edge1, _, err := graph.addRandChannel(
+				nil, nil, chanCapacity, false,
+			)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
 			}
 			_, _, err = graph.addRandChannel(
-				edge1.Peer.PubKey(), nil, chanCapacity,
+				edge1.Peer.PubKey(), nil, chanCapacity, false,
 			)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
@@ -596,8 +672,9 @@ func TestConstrainedPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// Next, we'll create a simple topology of two nodes,
 			// with a single channel connecting them.
 			const chanCapacity = btcutil.SatoshiPerBitcoin
-			_, _, err = graph.addRandChannel(nil, nil,
-				chanCapacity)
+			_, _, err = graph.addRandChannel(
+				nil, nil, chanCapacity, false,
+			)
 			if err != nil {
 				t1.Fatalf("unable to create channel: %v", err)
 			}

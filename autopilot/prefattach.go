@@ -196,21 +196,46 @@ func (p *ConstrainedPrefAttachment) Select(self *btcec.PublicKey, g ChannelGraph
 				return nil
 			}
 
-			// For initial bootstrap purposes, if a node doesn't
-			// have any channels, then we'll ensure that it has at
-			// least one item in the selection slice.
-			//
-			// TODO(roasbeef): make conditional?
-			selectionSlice = append(selectionSlice, node)
-
 			// For each active channel the node has, we'll add an
 			// additional channel to the selection slice to
 			// increase their weight.
+			var numEnabledChans int
+			var totalChans int
 			if err := node.ForEachChannel(func(channel ChannelEdge) error {
-				selectionSlice = append(selectionSlice, node)
+				if !channel.Disabled {
+					numEnabledChans++
+				}
+				totalChans++
 				return nil
 			}); err != nil {
 				return err
+			}
+
+			// Compute the fraction of channels that are reported as
+			// enabled for this node. As an arbitrary threshold, if
+			// more than half the channels are disabled we'll assume
+			// the node is unreliable.
+			enabledPercent := float64(numEnabledChans) /
+				float64(totalChans)
+			if enabledPercent < 0.5 {
+				return nil
+			}
+
+			// Otherwise, we will determine the node's weight as the
+			// fraction of enabled chan times the number of enabled
+			// channels. This penalizes a node with N enabled
+			// channels more heavily if it also has a large number
+			// of disabled channels. A different node with N enabled
+			// channels but none disabled will receive a higher
+			// score.
+			selectionWeight := int(
+				enabledPercent * float64(numEnabledChans),
+			)
+
+			// Add the node to our selection slice according to the
+			// computed selection weight.
+			for i := 0; i < selectionWeight; i++ {
+				selectionSlice = append(selectionSlice, node)
 			}
 
 			return nil

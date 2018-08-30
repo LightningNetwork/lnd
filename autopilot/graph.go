@@ -83,30 +83,84 @@ func (d dbNode) Addrs() []net.Addr {
 // NOTE: Part of the autopilot.Node interface.
 func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.node.ForEachChannel(d.tx, func(tx *bolt.Tx,
-		ei *channeldb.ChannelEdgeInfo, ep, _ *channeldb.ChannelEdgePolicy) error {
+		ei *channeldb.ChannelEdgeInfo, ep1, ep2 *channeldb.ChannelEdgePolicy) error {
+
+		nodeKey := d.PubKey().SerializeCompressed()
 
 		// Skip channels for which no outgoing edge policy is available.
+		// If the incoming channel policy is found, we will use this to
+		// determine if the remote node has reported this channel as
+		// disabled.
 		//
 		// TODO(joostjager): Ideally the case where channels have a nil
 		// policy should be supported, as auto pilot is not looking at
 		// the policies. For now, it is not easily possible to get a
 		// reference to the other end LightningNode object without
 		// retrieving the policy.
-		if ep == nil {
+		var (
+			outEp *channeldb.ChannelEdgePolicy
+			inEp  *channeldb.ChannelEdgePolicy
+		)
+		switch {
+
+		// Neither edge policy is found, skip this channel.
+		case ep1 == nil && ep2 == nil:
 			return nil
+
+		// Both edge policies are found, set the incoming and outgoing
+		// edge policies by comparing the target node's pubkey to the
+		// pubkey in each policy.
+		case ep1 != nil && ep2 != nil:
+			switch {
+			case bytes.Compare(ep1.Node.PubKeyBytes[:], nodeKey) == 0:
+				outEp = ep1
+				inEp = ep2
+			case bytes.Compare(ep2.Node.PubKeyBytes[:], nodeKey) == 0:
+				outEp = ep2
+				inEp = ep1
+			default:
+				return nil
+			}
+
+		// One edge policy was found, check that it is actually the
+		// outgoing policy based on node key.
+		case ep1 != nil:
+			if bytes.Compare(ep1.Node.PubKeyBytes[:], nodeKey) != 0 {
+				return nil
+			}
+			outEp = ep1
+
+		// One edge policy was found, check that it is actually the
+		// outgoing policy based on node key.
+		case ep2 != nil:
+			if bytes.Compare(ep2.Node.PubKeyBytes[:], nodeKey) != 0 {
+				return nil
+			}
+			outEp = ep2
 		}
 
-		pubkey, _ := ep.Node.PubKey()
+		// Marks channels that have been marked disabled by the remote
+		// party, as this indicates the target node may be offline. If
+		// the remote edge policy doesn't exist, we'll assume the
+		// channel is not disabled.
+		var disabled bool
+		if inEp != nil && inEp.Flags&lnwire.ChanUpdateDisabled > 0 {
+			disabled = true
+		}
+
+		shortChanID := lnwire.NewShortChanIDFromInt(outEp.ChannelID)
+		pubkey, _ := outEp.Node.PubKey()
 		edge := ChannelEdge{
 			Channel: Channel{
-				ChanID:    lnwire.NewShortChanIDFromInt(ep.ChannelID),
+				ChanID:    shortChanID,
 				Capacity:  ei.Capacity,
 				FundedAmt: ei.Capacity,
 				Node:      NewNodeID(pubkey),
+				Disabled:  disabled,
 			},
 			Peer: dbNode{
 				tx:   tx,
-				node: ep.Node,
+				node: outEp.Node,
 			},
 		}
 
@@ -141,7 +195,8 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
+	capacity btcutil.Amount, disabled bool) (*ChannelEdge,
+	*ChannelEdge, error) {
 
 	fetchNode := func(pub *btcec.PublicKey) (*channeldb.LightningNode, error) {
 		if pub != nil {
@@ -233,6 +288,10 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		Flags: 0,
 	}
 
+	if disabled {
+		edgePolicy.Flags |= lnwire.ChanUpdateDisabled
+	}
+
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err
 	}
@@ -246,6 +305,11 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		FeeProportionalMillionths: 10000,
 		Flags: 1,
 	}
+
+	if disabled {
+		edgePolicy.Flags |= lnwire.ChanUpdateDisabled
+	}
+
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err
 	}
@@ -254,6 +318,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			Channel: Channel{
 				ChanID:   chanID,
 				Capacity: capacity,
+				Disabled: disabled,
 			},
 			Peer: dbNode{
 				node: vertex1,
@@ -263,6 +328,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			Channel: Channel{
 				ChanID:   chanID,
 				Capacity: capacity,
+				Disabled: disabled,
 			},
 			Peer: dbNode{
 				node: vertex2,
@@ -324,7 +390,7 @@ func randKey() (*btcec.PublicKey, error) {
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
 func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
-	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
+	capacity btcutil.Amount, disabled bool) (*ChannelEdge, *ChannelEdge, error) {
 
 	var (
 		vertex1, vertex2 memNode
@@ -368,6 +434,7 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	channel := Channel{
 		ChanID:   randChanID(),
 		Capacity: capacity,
+		Disabled: disabled,
 	}
 
 	edge1 := ChannelEdge{
