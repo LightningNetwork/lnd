@@ -896,6 +896,24 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "offset",
+            "description": "/ The number of latest transactions to skip.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "/ Maximum number of transactions in response.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          }
+        ],
         "tags": [
           "Lightning"
         ]

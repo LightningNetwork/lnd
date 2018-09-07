@@ -2726,15 +2726,42 @@ var listChainTxnsCommand = cli.Command{
 	Category:    "On-chain",
 	Usage:       "List transactions from the wallet.",
 	Description: "List all transactions an address of the wallet was involved in.",
-	Action:      actionDecorator(listChainTxns),
+	Flags: []cli.Flag{
+		cli.IntFlag{
+			Name:  "offset",
+			Usage: "the number of latest transactions to skip.",
+		},
+		cli.IntFlag{
+			Name:  "limit",
+			Usage: "maximum number of transactions in response.",
+			Value: 1000,
+		},
+	},
+	Action: actionDecorator(listChainTxns),
 }
 
 func listChainTxns(ctx *cli.Context) error {
+	var (
+		offset int32
+		limit  int32
+		err    error
+	)
+
+	offset = 0
+	if ctx.IsSet("offset") {
+		offset = int32(ctx.Int("offset"))
+	}
+
+	limit = int32(ctx.Int("limit"))
+
 	ctxb := context.Background()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.GetTransactions(ctxb, &lnrpc.GetTransactionsRequest{})
+	resp, err := client.GetTransactions(ctxb, &lnrpc.GetTransactionsRequest{
+		Offset: offset,
+		Limit:  limit,
+	})
 
 	if err != nil {
 		return err

@@ -983,7 +983,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
 	}
-	txDetails, err := alice.ListTransactionDetails()
+	txDetails, err := alice.ListTransactionDetails(0, 1000)
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
 	}
@@ -1086,7 +1086,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
 	}
-	txDetails, err = alice.ListTransactionDetails()
+	txDetails, err = alice.ListTransactionDetails(0, 1000)
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
 	}
@@ -1117,6 +1117,48 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	}
 	if !burnTxFound {
 		t.Fatal("tx burning btc not found")
+	}
+
+	// Test pagination
+	// when offset is more than all transactions
+	txDetails, err = alice.ListTransactionDetails(100, 1000)
+	if err != nil {
+		t.Fatalf("unable to fetch tx details: %v", err)
+	}
+	// should return empty list
+	if len(txDetails) != 0 {
+		t.Fatalf("num of txs incorrect, got %v expected %v",
+			len(txDetails), 0)
+	}
+
+	// when numer of all transaction is less than limit + offset
+	txDetails, err = alice.ListTransactionDetails(0, 20)
+	if err != nil {
+		t.Fatalf("unable to fetch tx details: %v", err)
+	}
+	if len(txDetails) != 20 {
+		t.Fatalf("num txs incorrect, got %v expected %v",
+			len(txDetails), 20)
+	}
+	if txDetails[0].Timestamp <= txDetails[len(txDetails)-1].Timestamp {
+		t.Fatalf("order is invalid, start: %v, end: %v",
+			txDetails[0].Timestamp, txDetails[len(txDetails)-1].Timestamp)
+	}
+
+	// when numer of all transaction is more than limit + offset
+	txDetails, err = alice.ListTransactionDetails(30, 1000)
+	if err != nil {
+		t.Fatalf("unable to fetch tx details: %v", err)
+	}
+	if len(txDetails) != 1 {
+		t.Fatalf("num txs incorrect, got %v expected %v",
+			len(txDetails), 1)
+	}
+	// it should return oldest transaction.
+	allTxDetails, err := alice.ListTransactionDetails(0, 1000)
+	if txDetails[0].Hash != allTxDetails[len(allTxDetails)-1].Hash {
+		t.Fatalf("hash incorrect, got %v expected %v",
+			txDetails[0].Hash, allTxDetails[len(allTxDetails)-1].Hash)
 	}
 }
 

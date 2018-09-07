@@ -2993,10 +2993,14 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 // GetTransactions returns a list of describing all the known transactions
 // relevant to the wallet.
 func (r *rpcServer) GetTransactions(ctx context.Context,
-	_ *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
+	req *lnrpc.GetTransactionsRequest) (*lnrpc.TransactionDetails, error) {
 
-	// TODO(roasbeef): add pagination support
-	transactions, err := r.server.cc.wallet.ListTransactionDetails()
+	// Limit is 0 by default
+	limit := req.Limit
+	if limit == 0 {
+		limit = 1000
+	}
+	transactions, err := r.server.cc.wallet.ListTransactionDetails(req.Offset, limit)
 	if err != nil {
 		return nil, err
 	}

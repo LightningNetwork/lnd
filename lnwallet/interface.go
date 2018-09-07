@@ -171,7 +171,7 @@ type WalletController interface {
 
 	// ListTransactionDetails returns a list of all transactions which are
 	// relevant to the wallet.
-	ListTransactionDetails() ([]*TransactionDetail, error)
+	ListTransactionDetails(offset int32, limit int32) ([]*TransactionDetail, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligible for coin selection. Locking outputs are

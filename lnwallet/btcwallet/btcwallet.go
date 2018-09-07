@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -553,7 +554,7 @@ func unminedTransactionsToDetail(
 // relevant to the wallet.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, error) {
+func (b *BtcWallet) ListTransactionDetails(offset int32, limit int32) ([]*lnwallet.TransactionDetail, error) {
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
 	bestBlock := b.wallet.Manager.SyncedTo()
@@ -590,7 +591,22 @@ func (b *BtcWallet) ListTransactionDetails() ([]*lnwallet.TransactionDetail, err
 		txDetails = append(txDetails, detail)
 	}
 
-	return txDetails, nil
+	// Return empty transaction list, if offset is more than all transactions.
+	if offset > int32(len(txDetails)) {
+		return make([]*lnwallet.TransactionDetail, 0), nil
+	}
+
+	// Sort transactions by timestamp descending.
+	sort.Slice(txDetails, func(i, j int) bool {
+		return txDetails[i].Timestamp > txDetails[j].Timestamp
+	})
+	end := offset + limit
+	if end > int32(len(txDetails)) {
+		end = int32(len(txDetails))
+	}
+
+	// Slice transactions from offset to end.
+	return txDetails[offset:end], nil
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

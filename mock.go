@@ -249,7 +249,7 @@ func (m *mockWalletController) ListUnspentWitness(confirms int32) ([]*lnwallet.U
 	ret = append(ret, utxo)
 	return ret, nil
 }
-func (*mockWalletController) ListTransactionDetails() ([]*lnwallet.TransactionDetail, error) {
+func (*mockWalletController) ListTransactionDetails(offset int32, limit int32) ([]*lnwallet.TransactionDetail, error) {
 	return nil, nil
 }
 func (*mockWalletController) LockOutpoint(o wire.OutPoint)   {}
