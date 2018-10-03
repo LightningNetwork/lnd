@@ -21,6 +21,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -234,6 +235,8 @@ type config struct {
 
 	NoChanUpdates bool `long:"nochanupdates" description:"If specified, lnd will not request real-time channel updates from connected peers. This option should be used by routing nodes to save bandwidth."`
 
+	Features *feature.Conf `group:"feature" namespace:"feature"`
+
 	net tor.Net
 
 	Routing *routing.Conf `group:"routing" namespace:"routing"`
@@ -309,6 +312,10 @@ func loadConfig() (*config, error) {
 			Control: defaultTorControl,
 		},
 		net: &tor.ClearNet{},
+		Features: &feature.Conf{
+			SupportGossipQueries:      feature.NegotiationOptional,
+			SupportDataLossProtection: feature.NegotiationOptional,
+		},
 	}
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -769,6 +776,28 @@ func loadConfig() (*config, error) {
 	}
 	if cfg.Autopilot.MaxChannelSize > int64(maxFundingAmount) {
 		cfg.Autopilot.MaxChannelSize = int64(maxFundingAmount)
+	}
+
+	// Ensure that support for gossip queries is optional or required.
+	if !cfg.Features.SupportGossipQueries.IsOptional() &&
+		!cfg.Features.SupportGossipQueries.IsRequired() {
+		str := "%s: support-gossip-queries must be " +
+			"1:optional or 2:required"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, err
+
+	}
+	// Ensure that support for data loss protection is optional or required.
+	if !cfg.Features.SupportDataLossProtection.IsOptional() &&
+		!cfg.Features.SupportDataLossProtection.IsRequired() {
+		str := "%s: support-data-loss-protection support must be " +
+			"1:optional or 2:required"
+		err := fmt.Errorf(str, funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, err
 	}
 
 	// Validate profile port number.

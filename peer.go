@@ -188,6 +188,34 @@ type peer struct {
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
+
+	// NOTE: The following are only for backwards compatibility.
+
+	// downgradedGQ indicates if we are attempting to downgrade our
+	// advertised support for gossip queries to optional, even though we
+	// require it.
+	downgradedGQ bool
+
+	// downgradedDLP indicates if we are attempting to downgrade our
+	// advertised support for gossip queries to optional, even though we
+	// require it.
+	downgradedDLP bool
+
+	// initComplete will be set true before the peer exits if the init
+	// handoff occured without failure.
+	initComplete bool
+
+	// remoteSupportsOptGQ indicates whether or not the remote peer
+	// advertised optional gossip query support.
+	//
+	// NOTE: Only valid if initComplete is true.
+	remoteSupportsOptGQ bool
+
+	// remoteSupportsOptDLP indicates whether or not the remote peer
+	// advertised optional data loss protection support.
+	//
+	// NOTE: Only valid if initComplete is true.
+	remoteSupportsOptDLP bool
 }
 
 // A compile-time check to ensure that peer satisfies the lnpeer.Peer interface.
@@ -197,7 +225,8 @@ var _ lnpeer.Peer = (*peer)(nil)
 // pointer to the main server.
 func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 	addr *lnwire.NetAddress, inbound bool,
-	localFeatures *lnwire.RawFeatureVector) (*peer, error) {
+	localFeatures *lnwire.RawFeatureVector,
+	downgradedGQ, downgradeDLP bool) (*peer, error) {
 
 	nodePub := addr.IdentityKey
 
@@ -211,6 +240,9 @@ func newPeer(conn net.Conn, connReq *connmgr.ConnReq, server *server,
 		server: server,
 
 		localFeatures: localFeatures,
+
+		downgradedGQ:  downgradedGQ,
+		downgradedDLP: downgradeDLP,
 
 		sendQueue:     make(chan outgoingMsg),
 		outgoingQueue: make(chan outgoingMsg),
@@ -2111,6 +2143,8 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 	p.remoteGlobalFeatures = lnwire.NewFeatureVector(msg.GlobalFeatures,
 		lnwire.GlobalFeatures)
 
+	// Ensure that the we understand all of the remote node's local,
+	// required feature bits.
 	unknownLocalFeatures := p.remoteLocalFeatures.UnknownRequiredFeatures()
 	if len(unknownLocalFeatures) > 0 {
 		err := fmt.Errorf("Peer set unknown local feature bits: %v",
@@ -2118,12 +2152,62 @@ func (p *peer) handleInitMsg(msg *lnwire.Init) error {
 		return err
 	}
 
+	// Ensure that the we understand all of the remote node's global,
+	// required feature bits.
 	unknownGlobalFeatures := p.remoteGlobalFeatures.UnknownRequiredFeatures()
 	if len(unknownGlobalFeatures) > 0 {
 		err := fmt.Errorf("Peer set unknown global feature bits: %v",
 			unknownGlobalFeatures)
 		return err
 	}
+
+	// Record whether or not the remote node supports optional gossip
+	// queries. In the case that we are configured to require it, this
+	// information can be used to downgrade our advertised level in case the
+	// remote peer doesn't understand the required gossip queries feature
+	// bit.
+	p.remoteSupportsOptGQ = p.remoteLocalFeatures.IsSet(
+		lnwire.GossipQueriesOptional,
+	)
+
+	// Record whether or not the remote node supports optional data loss
+	// protection. In the case that we are configured to require it, this
+	// information can be used to downgrade our advertised level in case the
+	// remote peer doesn't understand the required data loss protection
+	// feature bit.
+	p.remoteSupportsOptDLP = p.remoteLocalFeatures.IsSet(
+		lnwire.GossipQueriesOptional,
+	)
+
+	// If we are attempting a downgraded gossip queries connection, this
+	// implies that we are trying to advertise gossip queries as required.
+	// If the remote peer claims they no longer support optional gossip
+	// queries (after previously saying they did), we will disconnect the
+	// peer to maintain that we require gossip queries.
+	if p.downgradedGQ && !p.remoteSupportsOptGQ {
+		err := fmt.Errorf("Downgraded peer does not support " +
+			"gossip queries, though we require")
+		return err
+	}
+
+	// If we are attempting a downgraded data loss protection connection,
+	// this implies that we are trying to advertise data loss protection as
+	// required. If the remote peer claims they no longer support optional
+	// data loss protection (after previously saying they did), we will
+	// disconnect the peer to maintain that we require data loss protection.
+	if p.downgradedDLP && p.remoteSupportsOptDLP {
+		err := fmt.Errorf("Downgraded peer does not support " +
+			"data loss protection, though we require")
+		return err
+	}
+
+	// If we have succeeded in all of the standard checks and passed the
+	// downgrade checks, we will mark the peer has having completed the init
+	// handshake. If this is the first time this occurs with a peer and we
+	// are requiring support for either, the values of remoteSupportsOptGQ
+	// and remoteSupportsOptDLP will be used to downgrade the our advertised
+	// feature bit for either on subsequent connections.
+	p.initComplete = true
 
 	return nil
 }

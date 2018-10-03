@@ -374,52 +374,70 @@ func (n *NetworkHarness) RegisterNode(node *HarnessNode) {
 	n.mtx.Unlock()
 }
 
+// errConnectionRequested is used to signal that a connection was requested
+// successfully, which is distinct from already being connected to the peer.
+var errConnectionRequested = errors.New("connection request in progress")
+
+// tryConnect is a helper method that tries to make a connection from A -> B. It
+// returns errConnectionRequested in cases where a connection attempt has been
+// made, but did not succeed on the first time. The caller should then wait for
+// the A to appear in B's peer list.
+func tryConnect(ctx context.Context, a, b *HarnessNode) error {
+	ctxt, _ := context.WithTimeout(ctx, 15*time.Second)
+	bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
+	if err != nil {
+		return err
+	}
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bInfo.IdentityPubkey,
+			Host:   b.cfg.P2PAddr(),
+		},
+	}
+
+	ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
+	_, err = a.ConnectPeer(ctxt, req)
+	switch {
+
+	// Request was successful, wait for both to display the
+	// connection.
+	case err == nil:
+		return errConnectionRequested
+
+	// If the two are already connected, we return early with no
+	// error.
+	case strings.Contains(err.Error(), "already connected to peer"):
+		return nil
+
+	// If we are trying to connect simultaneously, and the remote
+	// peer rejects a duplicate connection, we may see an error in trying to
+	// read their init message. If this happens, we'll wait until they
+	// appear in each other's peer list.
+	case strings.Contains(err.Error(), "unable to read init msg:"):
+		return errConnectionRequested
+
+	// If we are trying to connect simultaneously, and the remote
+	// peer rejects a duplicate connection, we may see an error in trying to
+	// write our init message. If this happens, we'll wait until they
+	// appear in each other's peer list.
+	case strings.Contains(err.Error(), "unable to send init msg:"):
+		return errConnectionRequested
+
+	default:
+		return err
+	}
+}
+
 // EnsureConnected will try to connect to two nodes, returning no error if they
 // are already connected. If the nodes were not connected previously, this will
 // behave the same as ConnectNodes. If a pending connection request has already
 // been made, the method will block until the two nodes appear in each other's
 // peers list, or until the 15s timeout expires.
 func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode) error {
-	// errConnectionRequested is used to signal that a connection was
-	// requested successfully, which is distinct from already being
-	// connected to the peer.
-	errConnectionRequested := errors.New("connection request in progress")
-
-	tryConnect := func(a, b *HarnessNode) error {
-		ctxt, _ := context.WithTimeout(ctx, 15*time.Second)
-		bInfo, err := b.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-		if err != nil {
-			return err
-		}
-
-		req := &lnrpc.ConnectPeerRequest{
-			Addr: &lnrpc.LightningAddress{
-				Pubkey: bInfo.IdentityPubkey,
-				Host:   b.cfg.P2PAddr(),
-			},
-		}
-
-		ctxt, _ = context.WithTimeout(ctx, 15*time.Second)
-		_, err = a.ConnectPeer(ctxt, req)
-		switch {
-
-		// Request was successful, wait for both to display the
-		// connection.
-		case err == nil:
-			return errConnectionRequested
-
-		// If the two are already connected, we return early with no
-		// error.
-		case strings.Contains(err.Error(), "already connected to peer"):
-			return nil
-
-		default:
-			return err
-		}
-	}
-
-	aErr := tryConnect(a, b)
-	bErr := tryConnect(b, a)
+	// Initiate a connection in each direction, A -> B and B -> A.
+	aErr := tryConnect(ctx, a, b)
+	bErr := tryConnect(ctx, b, a)
 	switch {
 	case aErr == nil && bErr == nil:
 		// If both reported already being connected to each other, we
@@ -475,22 +493,24 @@ func (n *NetworkHarness) EnsureConnected(ctx context.Context, a, b *HarnessNode)
 // NOTE: This function may block for up to 15-seconds as it will not return
 // until the new connection is detected as being known to both nodes.
 func (n *NetworkHarness) ConnectNodes(ctx context.Context, a, b *HarnessNode) error {
-	bobInfo, err := b.GetInfo(ctx, &lnrpc.GetInfoRequest{})
-	if err != nil {
-		return err
+	// Initiate a connection from A -> B.
+	aErr := tryConnect(ctx, a, b)
+	switch {
+
+	// If they are already connected, we are done.
+	case aErr == nil:
+		return nil
+
+	// If the connection error is critical, return it.
+	case aErr != errConnectionRequested:
+		return aErr
+
+	// Otherwise the connection is in progress, wait until B shows A in
+	// their peer list.
+	default:
 	}
 
-	req := &lnrpc.ConnectPeerRequest{
-		Addr: &lnrpc.LightningAddress{
-			Pubkey: bobInfo.IdentityPubkey,
-			Host:   b.cfg.P2PAddr(),
-		},
-	}
-	if _, err := a.ConnectPeer(ctx, req); err != nil {
-		return err
-	}
-
-	err = WaitPredicate(func() bool {
+	err := WaitPredicate(func() bool {
 		// If node B is seen in the ListPeers response from node A,
 		// then we can exit early as the connection has been fully
 		// established.

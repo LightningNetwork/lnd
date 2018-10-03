@@ -175,6 +175,17 @@ type server struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
+
+	// NOTE: The following are added for backwards compatibility.
+
+	// supportsOptGQ records whether or not a given peer advertised optional
+	// gossip queries on our first attempt that received their features.
+	supportsOptGQ map[string]bool
+
+	// supportsDLP records whether or not a given peer advertised optional
+	// data loss protection on our first attempt that received their
+	// features.
+	supportsOptDLP map[string]bool
 }
 
 // parseAddr parses an address from its string format to a net.Addr.
@@ -281,6 +292,9 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		outboundPeers:          make(map[string]*peer),
 		peerConnectedListeners: make(map[string][]chan<- lnpeer.Peer),
 		sentDisabled:           make(map[wire.OutPoint]bool),
+
+		supportsOptGQ:  make(map[string]bool),
+		supportsOptDLP: make(map[string]bool),
 
 		globalFeatures: lnwire.NewFeatureVector(globalFeatures,
 			lnwire.GlobalFeatures),
@@ -888,7 +902,7 @@ func newServer(listenAddrs []net.Addr, chanDB *channeldb.DB, cc *chainControl,
 		RetryDuration:  time.Second * 5,
 		TargetOutbound: 100,
 		Dial:           noiseDial(s.identityPriv),
-		OnConnection:   s.OutboundPeerConnected,
+		OnConnection:   s.outboundPeerConnected,
 	})
 	if err != nil {
 		return nil, err
@@ -2036,7 +2050,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.cancelConnReqs(pubStr, nil)
-		s.peerConnected(conn, nil, true)
+		s.peerConnected(conn, nil, true, nil)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -2065,18 +2079,38 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true)
+			s.peerConnected(conn, nil, true, nil)
 		}
 	}
+}
+
+// outboundPeerConnected is a helper method that serves as the outbound callback
+// from the connection manager. It passes a nil errChan to OutboundPeerConnected
+// since we don't need to wait for the response.
+func (s *server) outboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) {
+	// TODO(conner): lookup errchan for conn req in map to respond to
+	// callers of persistent connection attempts?
+	s.OutboundPeerConnected(connReq, conn, nil)
 }
 
 // OutboundPeerConnected initializes a new peer in response to a new outbound
 // connection.
 // NOTE: This function is safe for concurrent access.
-func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) {
+func (s *server) OutboundPeerConnected(
+	connReq *connmgr.ConnReq, conn net.Conn, errChan chan<- error) {
+
+	// Create a closure that we can use to respond to a caller waiting for a
+	// response via the error chan if the connection is rejected.
+	replyIfErrChan := func(err error) {
+		if errChan != nil {
+			errChan <- err
+		}
+	}
+
 	// Exit early if we have already been instructed to shutdown, this
 	// prevents any delayed callbacks from accidentally registering peers.
 	if s.Stopped() {
+		replyIfErrChan(ErrServerShuttingDown)
 		return
 	}
 
@@ -2089,20 +2123,23 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
 	if _, ok := s.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %x, "+
+		err := fmt.Errorf("Already have inbound connection for %x, "+
 			"ignoring outbound connection",
 			nodePub.SerializeCompressed())
-
+		srvrLog.Debug(err)
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
 		}
 		conn.Close()
+		replyIfErrChan(err)
 		return
 	}
 	if _, ok := s.persistentConnReqs[pubStr]; !ok && connReq != nil {
-		srvrLog.Debugf("Ignoring cancelled outbound connection")
+		err := fmt.Errorf("Ignoring cancelled outbound connection")
+		srvrLog.Debug(err)
 		s.connMgr.Remove(connReq.ID())
 		conn.Close()
+		replyIfErrChan(err)
 		return
 	}
 
@@ -2110,13 +2147,15 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
 	if _, ok := s.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+		err := fmt.Errorf("Ignoring connection, peer already scheduled")
+		srvrLog.Debug(err)
 
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
 		}
 
 		conn.Close()
+		replyIfErrChan(err)
 		return
 	}
 
@@ -2143,7 +2182,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false)
+		s.peerConnected(conn, connReq, false, errChan)
 
 	case nil:
 		// We already have a connection open with the target peer.
@@ -2152,13 +2191,15 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// connections.
 		localPub := s.identityPriv.PubKey()
 		if shouldDropLocalConnection(localPub, nodePub) {
-			srvrLog.Warnf("Established outbound connection to "+
+			err := fmt.Errorf("Established outbound connection to "+
 				"peer %x, but already connected, dropping conn",
 				nodePub.SerializeCompressed())
+			srvrLog.Warn(err)
 			if connReq != nil {
 				s.connMgr.Remove(connReq.ID())
 			}
 			conn.Close()
+			replyIfErrChan(err)
 			return
 		}
 
@@ -2174,7 +2215,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false)
+			s.peerConnected(conn, connReq, false, errChan)
 		}
 	}
 }
@@ -2233,14 +2274,16 @@ func (s *server) cancelConnReqs(pubStr string, skip *uint64) {
 // starting all the goroutines the peer needs to function properly. The inbound
 // boolean should be true if the peer initiated the connection to us.
 func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
-	inbound bool) {
+	inbound bool, errChan chan<- error) {
 
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
+	pubKeyBytes := pubKey.SerializeCompressed()
+	pubStr := string(pubKeyBytes)
 
 	srvrLog.Infof("Finalizing connection to %x, inbound=%v",
-		pubKey.SerializeCompressed(), inbound)
+		pubKeyBytes, inbound)
 
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
@@ -2252,16 +2295,75 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// feature vector to advertise to the remote node.
 	localFeatures := lnwire.NewRawFeatureVector()
 
-	// We'll signal that we understand the data loss protection feature,
-	// and also that we support the new gossip query features.
-	localFeatures.Set(lnwire.DataLossProtectOptional)
-	localFeatures.Set(lnwire.GossipQueriesOptional)
+	// If we successfully exchanged init messages in a prior connection,
+	// we'll look up whether this peer support gossip queries and/or data
+	// loss protection. If so, and we are negotiating a required level for
+	// either, we will downgrade to advertising optional.
+	//
+	// NOTE: This is only required for compatibility with 0.4.2 nodes. The
+	// required feature bits were not in place originally, so they will
+	// incorrectly reject a connection using required when they actually
+	// support the feature. This process can be removed once the majority of
+	// the network upgrades.
+	var (
+		downgradeGQ  bool
+		downgradeDLP bool
+	)
+
+	// We only ever to downgrade if the user requested that we advertise
+	// required for either gossip queries or data loss protection
+	// distinctly.
+	if cfg.Features.SupportGossipQueries.IsRequired() {
+		downgradeGQ = s.supportsOptGQ[pubStr]
+	}
+	if cfg.Features.SupportDataLossProtection.IsRequired() {
+		downgradeDLP = s.supportsOptDLP[pubStr]
+	}
+
+	// Advertise our requested level for gossip queries, downgrading for
+	// compatibility if necessary.
+	switch {
+	case cfg.Features.SupportGossipQueries.IsRequired() && downgradeGQ:
+		srvrLog.Debugf("Downgrading to optional gossip "+
+			"queries for compatibility with peer %x",
+			pubKeyBytes)
+		fallthrough
+
+	case cfg.Features.SupportGossipQueries.IsOptional():
+		localFeatures.Set(lnwire.GossipQueriesOptional)
+
+	case cfg.Features.SupportGossipQueries.IsRequired():
+		localFeatures.Set(lnwire.GossipQueriesRequired)
+	}
+
+	// Advertise our requested level for data loss protection, downgrading
+	// for compatibility if necessary.
+	switch {
+	case cfg.Features.SupportDataLossProtection.IsRequired() && downgradeDLP:
+		srvrLog.Debugf("Downgrading to optional data loss "+
+			"protection for compatibility with peer %x",
+			pubKeyBytes)
+		fallthrough
+
+	case cfg.Features.SupportDataLossProtection.IsOptional():
+		localFeatures.Set(lnwire.DataLossProtectOptional)
+
+	case cfg.Features.SupportDataLossProtection.IsRequired():
+		localFeatures.Set(lnwire.DataLossProtectRequired)
+	}
 
 	// Now that we've established a connection, create a peer, and it to
 	// the set of currently active peers.
-	p, err := newPeer(conn, connReq, s, peerAddr, inbound, localFeatures)
+	p, err := newPeer(
+		conn, connReq, s, peerAddr, inbound, localFeatures,
+		downgradeGQ, downgradeDLP,
+	)
 	if err != nil {
-		srvrLog.Errorf("unable to create peer %v", err)
+		err = fmt.Errorf("Unable to create peer %v", err)
+		srvrLog.Error(err)
+		if errChan != nil {
+			errChan <- err
+		}
 		return
 	}
 
@@ -2274,7 +2376,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// includes sending and receiving Init messages, which would be a DOS
 	// vector if we held the server's mutex throughout the procedure.
 	s.wg.Add(1)
-	go s.peerInitializer(p)
+	go s.peerInitializer(p, errChan)
 }
 
 // addPeer adds the passed peer to the server's global state of all active
@@ -2315,7 +2417,7 @@ func (s *server) addPeer(p *peer) {
 // be signaled of the new peer once the method returns.
 //
 // NOTE: This MUST be launched as a goroutine.
-func (s *server) peerInitializer(p *peer) {
+func (s *server) peerInitializer(p *peer, errChan chan<- error) {
 	defer s.wg.Done()
 
 	// Avoid initializing peers while the server is exiting.
@@ -2340,8 +2442,15 @@ func (s *server) peerInitializer(p *peer) {
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
-		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
+		err = fmt.Errorf("unable to start peer: %v", err)
+		p.Disconnect(err)
+		if errChan != nil {
+			errChan <- err
+		}
 		return
+	}
+	if errChan != nil {
+		close(errChan)
 	}
 
 	// Otherwise, signal to the peerTerminationWatcher that the peer startup
@@ -2388,17 +2497,18 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		return
 	}
 
+	pubKey := p.PubKey()
+	pubStr := string(pubKey[:])
+
 	// Next, we'll cancel all pending funding reservations with this node.
 	// If we tried to initiate any funding flows that haven't yet finished,
 	// then we need to unlock those committed outputs so they're still
 	// available for use.
-	s.fundingMgr.CancelPeerReservations(p.PubKey())
-
-	pubKey := p.addr.IdentityKey
+	s.fundingMgr.CancelPeerReservations(pubKey)
 
 	// We'll also inform the gossiper that this peer is no longer active,
 	// so we don't need to maintain sync state for it any longer.
-	s.authGossiper.PruneSyncState(pubKey)
+	s.authGossiper.PruneSyncState(p.IdentityKey())
 
 	// Tell the switch to remove all links associated with this peer.
 	// Passing nil as the target link indicates that all links associated
@@ -2418,13 +2528,45 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// If we were able to receive the remote peer's local feature bits, we
+	// will cache their support for gossip queries and data loss protection.
+	// We only store this if the negotiation level for either is required
+	// and not already known, as we may drop down to optional if the peer
+	// supports the feature, but doesn't recognize the feature bit.
+	//
+	// NOTE: This is only required for compatibility with 0.4.2 nodes. The
+	// required feature bits were not in place, so they will incorrectly
+	// reject a connection using required when they actually support the
+	// feature. This process can be removed once the majority of the network
+	// upgrades.
+	if p.initComplete {
+		// If we require gossip queries and this was the first time we
+		// received features from this peer, record whether or not they
+		// support optional gossip queries.
+		gqReq := cfg.Features.SupportGossipQueries.IsRequired()
+		if gqReq {
+			if _, ok := s.supportsOptGQ[pubStr]; !ok {
+				s.supportsOptGQ[pubStr] =
+					p.remoteSupportsOptGQ
+			}
+		}
+
+		// If we require data loss protection and this was the first
+		// time we received features from this peer, record whether or
+		// not they support optional data loss protection.
+		dlpReq := cfg.Features.SupportDataLossProtection.IsRequired()
+		if dlpReq {
+			if _, ok := s.supportsOptDLP[pubStr]; !ok {
+				s.supportsOptDLP[pubStr] =
+					p.remoteSupportsOptDLP
+			}
+		}
+	}
+
 	// If the server has already removed this peer, we can short circuit the
 	// peer termination watcher and skip cleanup.
 	if _, ok := s.ignorePeerTermination[p]; ok {
 		delete(s.ignorePeerTermination, p)
-
-		pubKey := p.PubKey()
-		pubStr := string(pubKey[:])
 
 		// If a connection callback is present, we'll go ahead and
 		// execute it now that previous peer has fully disconnected. If
@@ -2444,7 +2586,6 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 	s.removePeer(p)
 
 	// Next, check to see if this is a persistent peer or not.
-	pubStr := string(pubKey.SerializeCompressed())
 	_, ok := s.persistentPeers[pubStr]
 	if ok {
 		// We'll only need to re-launch a connection request if one
@@ -2459,12 +2600,12 @@ func (s *server) peerTerminationWatcher(p *peer, ready chan struct{}) {
 		// TODO(roasbeef): use them all?
 		if p.inbound {
 			advertisedAddr, err := s.fetchNodeAdvertisedAddr(
-				pubKey,
+				p.IdentityKey(),
 			)
 			if err != nil {
 				srvrLog.Errorf("Unable to retrieve advertised "+
 					"address for node %x: %v",
-					pubKey.SerializeCompressed(), err)
+					pubKey[:], err)
 			} else {
 				p.addr.Address = advertisedAddr
 			}
@@ -2664,9 +2805,7 @@ func (s *server) connectToPeer(addr *lnwire.NetAddress, errChan chan<- error) {
 		return
 	}
 
-	close(errChan)
-
-	s.OutboundPeerConnected(nil, conn)
+	s.OutboundPeerConnected(nil, conn, errChan)
 }
 
 // DisconnectPeer sends the request to server to close the connection with peer
