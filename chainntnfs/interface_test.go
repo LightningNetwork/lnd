@@ -1596,7 +1596,12 @@ func TestInterfaces(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to create db: %v", err)
 		}
-		hintCache, err := chainntnfs.NewHeightHintCache(db, true)
+
+		hintCache, err := chainntnfs.NewHeightHintCache(
+			db, true,
+			chainntnfs.DefaultHintPruneInterval,
+			chainntnfs.DefaultHintPruneTimeout,
+		)
 		if err != nil {
 			t.Fatalf("unable to create height hint cache: %v", err)
 		}
@@ -1615,15 +1620,13 @@ func TestInterfaces(t *testing.T) {
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
-					bitcoindConn, hintCache, hintCache,
+					bitcoindConn, hintCache,
 				), nil
 			}
 
 		case "btcd":
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
-				return btcdnotify.New(
-					&rpcConfig, hintCache, hintCache,
-				)
+				return btcdnotify.New(&rpcConfig, hintCache)
 			}
 
 		case "neutrino":
@@ -1632,9 +1635,7 @@ func TestInterfaces(t *testing.T) {
 				t, p2pAddr,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
-				return neutrinonotify.New(
-					spvNode, hintCache, hintCache,
-				)
+				return neutrinonotify.New(spvNode, hintCache)
 			}
 		}
 

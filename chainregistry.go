@@ -182,7 +182,11 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 	)
 
 	// Initialize disabled height hint cache within the chain directory.
-	hintCache, err := chainntnfs.NewHeightHintCache(chanDB, true)
+	hintCache, err := chainntnfs.NewHeightHintCache(
+		chanDB, true,
+		chainntnfs.DefaultHintPruneInterval,
+		chainntnfs.DefaultHintPruneTimeout,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
@@ -253,7 +257,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		// FilteredChainView interface which is backed by the neutrino
 		// light client.
 		cc.chainNotifier, err = neutrinonotify.New(
-			svc, hintCache, hintCache,
+			svc, hintCache,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -332,7 +336,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 		}
 
 		cc.chainNotifier = bitcoindnotify.New(
-			bitcoindConn, hintCache, hintCache,
+			bitcoindConn, hintCache,
 		)
 		cc.chainView = chainview.NewBitcoindFilteredChainView(bitcoindConn)
 		walletConfig.ChainSource = bitcoindConn.NewBitcoindClient()
@@ -442,7 +446,7 @@ func newChainControlFromConfig(cfg *config, chanDB *channeldb.DB,
 			DisableAutoReconnect: false,
 		}
 		cc.chainNotifier, err = btcdnotify.New(
-			rpcConfig, hintCache, hintCache,
+			rpcConfig, hintCache,
 		)
 		if err != nil {
 			return nil, nil, err

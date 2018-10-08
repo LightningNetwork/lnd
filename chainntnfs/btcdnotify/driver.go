@@ -11,7 +11,7 @@ import (
 // createNewNotifier creates a new instance of the ChainNotifier interface
 // implemented by BtcdNotifier.
 func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
-	if len(args) != 3 {
+	if len(args) != 2 {
 		return nil, fmt.Errorf("incorrect number of arguments to "+
 			".New(...), expected 2, instead passed %v", len(args))
 	}
@@ -22,19 +22,13 @@ func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
 			"is incorrect, expected a *rpcclient.ConnConfig")
 	}
 
-	spendHintCache, ok := args[1].(chainntnfs.SpendHintCache)
+	hintCache, ok := args[1].(chainntnfs.HintCache)
 	if !ok {
 		return nil, errors.New("second argument to btcdnotifier.New " +
-			"is incorrect, expected a chainntnfs.SpendHintCache")
+			"is incorrect, expected a chainntnfs.HintCache")
 	}
 
-	confirmHintCache, ok := args[2].(chainntnfs.ConfirmHintCache)
-	if !ok {
-		return nil, errors.New("third argument to btcdnotifier.New " +
-			"is incorrect, expected a chainntnfs.ConfirmHintCache")
-	}
-
-	return New(config, spendHintCache, confirmHintCache)
+	return New(config, hintCache)
 }
 
 // init registers a driver for the BtcdNotifier concrete implementation of the

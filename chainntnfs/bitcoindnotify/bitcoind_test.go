@@ -25,7 +25,9 @@ func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := chainntnfs.NewHeightHintCache(db, true)
+	hintCache, err := chainntnfs.NewHeightHintCache(
+		db, true, DefaultHintPruneInterval, DefaultHintPruneTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to create hint cache: %v", err)
 	}

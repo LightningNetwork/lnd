@@ -22,19 +22,13 @@ func createNewNotifier(args ...interface{}) (chainntnfs.ChainNotifier, error) {
 			"is incorrect, expected a *neutrino.ChainService")
 	}
 
-	spendHintCache, ok := args[1].(chainntnfs.SpendHintCache)
+	hintCache, ok := args[1].(chainntnfs.HintCache)
 	if !ok {
 		return nil, errors.New("second argument to neutrinonotify.New " +
-			"is  incorrect, expected a chainntfs.SpendHintCache")
+			"is incorrect, expected a chainntfs.HintCache")
 	}
 
-	confirmHintCache, ok := args[2].(chainntnfs.ConfirmHintCache)
-	if !ok {
-		return nil, errors.New("third argument to neutrinonotify.New " +
-			"is  incorrect, expected a chainntfs.ConfirmHintCache")
-	}
-
-	return New(config, spendHintCache, confirmHintCache)
+	return New(config, hintCache)
 }
 
 // init registers a driver for the NeutrinoNotify concrete implementation of

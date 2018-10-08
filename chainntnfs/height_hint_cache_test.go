@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"io/ioutil"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
-func initHintCache(t *testing.T, disable bool) *HeightHintCache {
+func initHintCache(t *testing.T, disable bool,
+	pruneInterval, pruneTimeout time.Duration) *HeightHintCache {
+
 	t.Helper()
 
 	tempDir, err := ioutil.TempDir("", "kek")
@@ -21,9 +24,16 @@ func initHintCache(t *testing.T, disable bool) *HeightHintCache {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := NewHeightHintCache(db, disable)
+	hintCache, err := NewHeightHintCache(
+		db, disable, pruneInterval, pruneTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to create hint cache: %v", err)
+	}
+
+	err = hintCache.Start()
+	if err != nil {
+		t.Fatalf("unable to start hint cache: %v", err)
 	}
 
 	return hintCache
@@ -34,7 +44,10 @@ func initHintCache(t *testing.T, disable bool) *HeightHintCache {
 func TestHeightHintCacheConfirms(t *testing.T) {
 	t.Parallel()
 
-	hintCache := initHintCache(t, false)
+	hintCache := initHintCache(
+		t, false, DefaultHintPruneInterval, DefaultHintPruneTimeout,
+	)
+	defer hintCache.Stop()
 
 	// Querying for a transaction hash not found within the cache should
 	// return an error indication so.
@@ -93,7 +106,10 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 func TestHeightHintCacheSpends(t *testing.T) {
 	t.Parallel()
 
-	hintCache := initHintCache(t, false)
+	hintCache := initHintCache(
+		t, false, DefaultHintPruneInterval, DefaultHintPruneTimeout,
+	)
+	defer hintCache.Stop()
 
 	// Querying for an outpoint not found within the cache should return an
 	// error indication so.
@@ -155,7 +171,9 @@ func TestHeightHintCacheDisabled(t *testing.T) {
 	const height uint32 = 100
 
 	// Create a disabled height hint cache.
-	hintCache := initHintCache(t, true)
+	hintCache := initHintCache(
+		t, true, DefaultHintPruneInterval, DefaultHintPruneTimeout,
+	)
 
 	// Querying a disabled cache w/ no spend hint should return not found.
 	var outpoint wire.OutPoint
@@ -217,5 +235,167 @@ func TestHeightHintCacheDisabled(t *testing.T) {
 	_, err = hintCache.QueryConfirmHint(txid)
 	if err != ErrConfirmHintNotFound {
 		t.Fatalf("expected ErrConfirmHintNotFound, got: %v", err)
+	}
+}
+
+// TestHeightHintCacheZombiePurge verifies the behavior of the height hint
+// cache's garbage collection, and checks that we continue to delay pruning of
+// entries that we are still updating or querying.
+func TestHeightHintCacheZombiePurge(t *testing.T) {
+	t.Parallel()
+
+	const interval = 3 * time.Second
+	const timeout = 2 * time.Second
+	const tolerance = 200 * time.Millisecond
+
+	hintCache := initHintCache(t, false, interval, timeout)
+	defer hintCache.Stop()
+
+	// With the cache started, we'll construct all relevant timers here so
+	// that they are as synchronized with the hint cache's garbage
+	// collection as much as possible.
+	//
+	// The three timers fire:
+	//  before1: before first gc cycle
+	//  after1: after first gc cycle
+	//  before2: before the second gc cylce
+	//  at2: concurrently with the second pruning
+	//  after3: after the third gc cycle
+	before1 := time.After(interval - tolerance)
+	after1 := time.After(interval + tolerance)
+	before2 := time.After(2*interval - tolerance)
+	at2 := time.After(2 * interval)
+	after3 := time.After(3*interval + tolerance)
+
+	const height = 100
+	const numHashes = 6
+	txHashes := make([]chainhash.Hash, numHashes)
+	for i := 0; i < numHashes; i++ {
+		var txHash chainhash.Hash
+		copy(txHash[:], bytes.Repeat([]byte{byte(i)}, 32))
+		txHashes[i] = txHash
+	}
+
+	const numOutpoints = 6
+	var txHash chainhash.Hash
+	copy(txHash[:], bytes.Repeat([]byte{0xFF}, 32))
+	outpoints := make([]wire.OutPoint, numOutpoints)
+	for i := uint32(0); i < numOutpoints; i++ {
+		outpoints[i] = wire.OutPoint{Hash: txHash, Index: i}
+	}
+
+	if err := hintCache.CommitConfirmHint(height, txHashes...); err != nil {
+		t.Fatalf("unable to add entries to cache: %v", err)
+	}
+	if err := hintCache.CommitSpendHint(height, outpoints...); err != nil {
+		t.Fatalf("unable to add outpoints to cache: %v", err)
+	}
+
+	<-before1
+
+	// Simulate registration that happens shortly after startup.
+	for i := 0; i < numHashes/2; i++ {
+		_, err := hintCache.QueryConfirmHint(txHashes[i])
+		if err != nil {
+			t.Fatalf("unable to query for conf hint: %v", err)
+		}
+	}
+	for i := 0; i < numOutpoints/2; i++ {
+		_, err := hintCache.QuerySpendHint(outpoints[i])
+		if err != nil {
+			t.Fatalf("unable to query for spend hint: %v", err)
+		}
+	}
+
+	<-after1
+
+	// The latter half should be purged, as they were not queried before the
+	// prune timeout.
+	for i := numHashes / 2; i < numHashes; i++ {
+		_, err := hintCache.QueryConfirmHint(txHashes[i])
+		if err != ErrConfirmHintNotFound {
+			t.Fatalf("unexpected error when querying for "+
+				"pruned confirm hint, want: %v, got: %v",
+				ErrConfirmHintNotFound, err)
+		}
+	}
+	for i := numOutpoints / 2; i < numOutpoints; i++ {
+		_, err := hintCache.QuerySpendHint(outpoints[i])
+		if err != ErrSpendHintNotFound {
+			t.Fatalf("unexpected error when querying for "+
+				"pruned spend hint, want: %v, got %v",
+				ErrSpendHintNotFound, err)
+		}
+	}
+
+	// To make sure the first half didn't get cleaned up, we'll query each
+	// of them. This will reset the timeout for each.
+	for i := 0; i < numHashes/2; i++ {
+		_, err := hintCache.QueryConfirmHint(txHashes[i])
+		if err != nil {
+			t.Fatalf("unable to query for conf hint: %v", err)
+		}
+	}
+
+	for i := 0; i < numOutpoints/2; i++ {
+		_, err := hintCache.QuerySpendHint(outpoints[i])
+		if err != nil {
+			t.Fatalf("unable to query for spend hint: %v", err)
+		}
+	}
+
+	<-before2
+
+	// Just before starting the second gc cycle, update the heights for our
+	// first half of spend and conf hints. This should cause all of these
+	// hints to survive the cycle.
+	err := hintCache.CommitConfirmHint(height+1, txHashes[:len(txHashes)/2]...)
+	if err != nil {
+		t.Fatalf("unable to add entries to cache: %v", err)
+	}
+	err = hintCache.CommitSpendHint(height+1, outpoints[:len(outpoints)/2]...)
+	if err != nil {
+		t.Fatalf("unable to add outpoints to cache: %v", err)
+	}
+
+	<-at2
+
+	// As soon as the second cycle ends, query to make sure the first half
+	// didn't get cleaned up. This will reset the timeouts, but they should
+	// expire again in time to get cleaned up in the third cycle.
+	for i := 0; i < numHashes/2; i++ {
+		_, err := hintCache.QueryConfirmHint(txHashes[i])
+		if err != nil {
+			t.Fatalf("unable to query for conf hint: %v", err)
+		}
+	}
+
+	for i := 0; i < numOutpoints/2; i++ {
+		_, err := hintCache.QuerySpendHint(outpoints[i])
+		if err != nil {
+			t.Fatalf("unable to query for spend hint: %v", err)
+		}
+	}
+
+	<-after3
+
+	// Verify that the first half has now been removed after the third
+	// cycle.
+	for i := 0; i < numHashes/2; i++ {
+		_, err := hintCache.QueryConfirmHint(txHashes[i])
+		if err != ErrConfirmHintNotFound {
+			t.Fatalf("unexpected error when querying for "+
+				"pruned confirm hint, want: %v, got: %v",
+				ErrConfirmHintNotFound, err)
+		}
+	}
+
+	for i := 0; i < numOutpoints/2; i++ {
+		_, err := hintCache.QuerySpendHint(outpoints[i])
+		if err != ErrSpendHintNotFound {
+			t.Fatalf("unexpected error when querying for "+
+				"pruned spend hint, want: %v, got %v",
+				ErrSpendHintNotFound, err)
+		}
 	}
 }

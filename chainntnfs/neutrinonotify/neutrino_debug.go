@@ -22,6 +22,10 @@ import (
 func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
 	syncHeight int32, generateBlocks func() error) error {
 
+	if err := n.hintCache.Start(); err != nil {
+		return err
+	}
+
 	// We'll obtain the latest block height of the p2p node. We'll
 	// start the auto-rescan from this point. Once a caller actually wishes
 	// to register a chain view, the rescan state will be rewound
@@ -53,7 +57,7 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Has
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		uint32(bestHeight), reorgSafetyLimit, n.confirmHintCache,
+		uint32(bestHeight), reorgSafetyLimit, n.hintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}

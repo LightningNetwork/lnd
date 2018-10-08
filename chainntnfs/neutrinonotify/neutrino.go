@@ -77,15 +77,11 @@ type NeutrinoNotifier struct {
 
 	chainUpdates *chainntnfs.ConcurrentQueue
 
-	// spendHintCache is a cache used to query and update the latest height
-	// hints for an outpoint. Each height hint represents the earliest
-	// height at which the outpoint could have been spent within the chain.
-	spendHintCache chainntnfs.SpendHintCache
-
-	// confirmHintCache is a cache used to query the latest height hints for
-	// a transaction. Each height hint represents the earliest height at
-	// which the transaction could have confirmed within the chain.
-	confirmHintCache chainntnfs.ConfirmHintCache
+	// hintCache is a cache used to query and update the latest height
+	// hints for an outpoint or txid. Each height hint represents the
+	// earliest height at which the entry could have been spent or confirmed
+	// within the chain.
+	hintCache chainntnfs.HintCache
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -99,8 +95,8 @@ var _ chainntnfs.ChainNotifier = (*NeutrinoNotifier)(nil)
 //
 // NOTE: The passed neutrino node should already be running and active before
 // being passed into this function.
-func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
-	confirmHintCache chainntnfs.ConfirmHintCache) (*NeutrinoNotifier, error) {
+func New(node *neutrino.ChainService,
+	hintCache chainntnfs.HintCache) (*NeutrinoNotifier, error) {
 
 	notifier := &NeutrinoNotifier{
 		notificationCancels:  make(chan interface{}),
@@ -116,8 +112,7 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 
 		chainUpdates: chainntnfs.NewConcurrentQueue(10),
 
-		spendHintCache:   spendHintCache,
-		confirmHintCache: confirmHintCache,
+		hintCache: hintCache,
 
 		quit: make(chan struct{}),
 	}
@@ -131,6 +126,10 @@ func (n *NeutrinoNotifier) Start() error {
 	// Already started?
 	if atomic.AddInt32(&n.started, 1) != 1 {
 		return nil
+	}
+
+	if err := n.hintCache.Start(); err != nil {
+		return err
 	}
 
 	// First, we'll obtain the latest block height of the p2p node. We'll
@@ -165,7 +164,7 @@ func (n *NeutrinoNotifier) Start() error {
 	}
 
 	n.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		bestHeight, reorgSafetyLimit, n.confirmHintCache,
+		bestHeight, reorgSafetyLimit, n.hintCache,
 	)
 
 	n.chainConn = &NeutrinoChainConn{n.p2pNode}
@@ -194,6 +193,7 @@ func (n *NeutrinoNotifier) Stop() error {
 	n.wg.Wait()
 
 	n.chainUpdates.Stop()
+	n.hintCache.Stop()
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
@@ -666,7 +666,7 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	}
 
 	if len(ops) > 0 {
-		err := n.spendHintCache.CommitSpendHint(newBlock.height, ops...)
+		err := n.hintCache.CommitSpendHint(newBlock.height, ops...)
 		if err != nil {
 			// The error is not fatal since we are connecting a
 			// block, and advancing the spend hint is an optimistic
@@ -783,7 +783,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
-	if hint, err := n.spendHintCache.QuerySpendHint(*outpoint); err == nil {
+	if hint, err := n.hintCache.QuerySpendHint(*outpoint); err == nil {
 		if hint > heightHint {
 			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
 				"from cache for %v", hint, outpoint)
@@ -907,7 +907,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 	// Finally, we'll add a spent hint with the current height to the cache
 	// in order to better keep track of when this outpoint is spent.
-	err = n.spendHintCache.CommitSpendHint(currentHeight, *outpoint)
+	err = n.hintCache.CommitSpendHint(currentHeight, *outpoint)
 	if err != nil {
 		// The error is not fatal, so we should not return an error to
 		// the caller.
@@ -935,7 +935,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
-	if hint, err := n.confirmHintCache.QueryConfirmHint(*txid); err == nil {
+	if hint, err := n.hintCache.QueryConfirmHint(*txid); err == nil {
 		if hint > heightHint {
 			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
 				"from cache for %v", hint, txid)

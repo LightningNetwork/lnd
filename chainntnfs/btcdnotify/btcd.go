@@ -84,15 +84,11 @@ type BtcdNotifier struct {
 	chainUpdates *chainntnfs.ConcurrentQueue
 	txUpdates    *chainntnfs.ConcurrentQueue
 
-	// spendHintCache is a cache used to query and update the latest height
-	// hints for an outpoint. Each height hint represents the earliest
-	// height at which the outpoint could have been spent within the chain.
-	spendHintCache chainntnfs.SpendHintCache
-
-	// confirmHintCache is a cache used to query the latest height hints for
-	// a transaction. Each height hint represents the earliest height at
-	// which the transaction could have confirmed within the chain.
-	confirmHintCache chainntnfs.ConfirmHintCache
+	// hintCache is a cache used to query and update the latest height
+	// hints for an outpoint or txid. Each height hint represents the
+	// earliest height at which the entry could have been spent or confirmed
+	// within the chain.
+	hintCache chainntnfs.HintCache
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -104,8 +100,8 @@ var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 // New returns a new BtcdNotifier instance. This function assumes the btcd node
 // detailed in the passed configuration is already running, and willing to
 // accept new websockets clients.
-func New(config *rpcclient.ConnConfig, spendHintCache chainntnfs.SpendHintCache,
-	confirmHintCache chainntnfs.ConfirmHintCache) (*BtcdNotifier, error) {
+func New(config *rpcclient.ConnConfig,
+	hintCache chainntnfs.HintCache) (*BtcdNotifier, error) {
 
 	notifier := &BtcdNotifier{
 		notificationCancels:  make(chan interface{}),
@@ -118,8 +114,7 @@ func New(config *rpcclient.ConnConfig, spendHintCache chainntnfs.SpendHintCache,
 		chainUpdates: chainntnfs.NewConcurrentQueue(10),
 		txUpdates:    chainntnfs.NewConcurrentQueue(10),
 
-		spendHintCache:   spendHintCache,
-		confirmHintCache: confirmHintCache,
+		hintCache: hintCache,
 
 		quit: make(chan struct{}),
 	}
@@ -159,6 +154,9 @@ func (b *BtcdNotifier) Start() error {
 	if err := b.chainConn.NotifyBlocks(); err != nil {
 		return err
 	}
+	if err := b.hintCache.Start(); err != nil {
+		return err
+	}
 
 	currentHash, currentHeight, err := b.chainConn.GetBestBlock()
 	if err != nil {
@@ -166,7 +164,7 @@ func (b *BtcdNotifier) Start() error {
 	}
 
 	b.txConfNotifier = chainntnfs.NewTxConfNotifier(
-		uint32(currentHeight), reorgSafetyLimit, b.confirmHintCache,
+		uint32(currentHeight), reorgSafetyLimit, b.hintCache,
 	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{
@@ -199,6 +197,7 @@ func (b *BtcdNotifier) Stop() error {
 
 	b.chainUpdates.Stop()
 	b.txUpdates.Stop()
+	b.hintCache.Stop()
 
 	// Notify all pending clients of our shutdown by closing the related
 	// notification channels.
@@ -766,7 +765,7 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	}
 
 	if len(ops) > 0 {
-		err := b.spendHintCache.CommitSpendHint(
+		err := b.hintCache.CommitSpendHint(
 			uint32(epoch.Height), ops...,
 		)
 		if err != nil {
@@ -863,7 +862,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
-	if hint, err := b.spendHintCache.QuerySpendHint(*outpoint); err == nil {
+	if hint, err := b.hintCache.QuerySpendHint(*outpoint); err == nil {
 		if hint > heightHint {
 			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
 				"from cache for %v", hint, outpoint)
@@ -905,7 +904,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	// given height hint. This allows us to increase the height hint as the
 	// chain extends and the output remains unspent.
 	if txOut != nil {
-		err := b.spendHintCache.CommitSpendHint(heightHint, *outpoint)
+		err := b.hintCache.CommitSpendHint(heightHint, *outpoint)
 		if err != nil {
 			// The error is not fatal, so we should not return an
 			// error to the caller.
@@ -1017,7 +1016,7 @@ func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash, _ []byte,
 
 	// Before proceeding to register the notification, we'll query our
 	// height hint cache to determine whether a better one exists.
-	if hint, err := b.confirmHintCache.QueryConfirmHint(*txid); err == nil {
+	if hint, err := b.hintCache.QueryConfirmHint(*txid); err == nil {
 		if hint > heightHint {
 			chainntnfs.Log.Debugf("Using height hint %d retrieved "+
 				"from cache for %v", hint, txid)

@@ -2153,11 +2153,15 @@ func TestLightningWallet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to create db: %v", err)
 	}
-	hintCache, err := chainntnfs.NewHeightHintCache(db, true)
+	hintCache, err := chainntnfs.NewHeightHintCache(
+		db, true,
+		chainntnfs.DefaultHintPruneInterval,
+		chainntnfs.DefaultHintPruneTimeout,
+	)
 	if err != nil {
 		t.Fatalf("unable to create height hint cache: %v", err)
 	}
-	chainNotifier, err := btcdnotify.New(&rpcConfig, hintCache, hintCache)
+	chainNotifier, err := btcdnotify.New(&rpcConfig, hintCache)
 	if err != nil {
 		t.Fatalf("unable to create notifier: %v", err)
 	}
