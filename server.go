@@ -931,6 +931,42 @@ func (s *server) Start() error {
 		return nil
 	}
 
+	// Start the notification server. This is used so channel management
+	// goroutines can be notified when a funding transaction reaches a
+	// sufficient number of confirmations, or when the input for the
+	// funding transaction is spent in an attempt at an uncooperative close
+	// by the counterparty.
+	if err := s.cc.chainNotifier.Start(); err != nil {
+		return err
+	}
+	if err := s.utxoNursery.Start(); err != nil {
+		return err
+	}
+	if err := s.breachArbiter.Start(); err != nil {
+		return err
+	}
+	if err := s.fundingMgr.Start(); err != nil {
+		return err
+	}
+	if err := s.chainArb.Start(); err != nil {
+		return err
+	}
+	if err := s.authGossiper.Start(); err != nil {
+		return err
+	}
+	if err := s.chanRouter.Start(); err != nil {
+		return err
+	}
+	if err := s.invoices.Start(); err != nil {
+		return err
+	}
+	if err := s.sphinx.Start(); err != nil {
+		return err
+	}
+	if err := s.htlcSwitch.Start(); err != nil {
+		return err
+	}
+
 	if s.torController != nil {
 		if err := s.initTorController(); err != nil {
 			return err
@@ -942,43 +978,7 @@ func (s *server) Start() error {
 		go s.watchExternalIP()
 	}
 
-	// Start the notification server. This is used so channel management
-	// goroutines can be notified when a funding transaction reaches a
-	// sufficient number of confirmations, or when the input for the
-	// funding transaction is spent in an attempt at an uncooperative close
-	// by the counterparty.
-	if err := s.cc.chainNotifier.Start(); err != nil {
-		return err
-	}
-	if err := s.sphinx.Start(); err != nil {
-		return err
-	}
-	if err := s.htlcSwitch.Start(); err != nil {
-		return err
-	}
-	if err := s.utxoNursery.Start(); err != nil {
-		return err
-	}
-	if err := s.chainArb.Start(); err != nil {
-		return err
-	}
-	if err := s.breachArbiter.Start(); err != nil {
-		return err
-	}
-	if err := s.authGossiper.Start(); err != nil {
-		return err
-	}
-	if err := s.chanRouter.Start(); err != nil {
-		return err
-	}
-	if err := s.fundingMgr.Start(); err != nil {
-		return err
-	}
 	s.connMgr.Start()
-
-	if err := s.invoices.Start(); err != nil {
-		return err
-	}
 
 	// With all the relevant sub-systems started, we'll now attempt to
 	// establish persistent connections to our direct channel collaborators
@@ -1034,26 +1034,27 @@ func (s *server) Stop() error {
 	}
 
 	// Shutdown the wallet, funding manager, and the rpc server.
-	s.cc.chainNotifier.Stop()
-	s.chanRouter.Stop()
+	s.connMgr.Stop()
 	s.htlcSwitch.Stop()
 	s.sphinx.Stop()
-	s.utxoNursery.Stop()
-	s.breachArbiter.Stop()
+	s.invoices.Stop()
+	s.chanRouter.Stop()
 	s.authGossiper.Stop()
 	s.chainArb.Stop()
-	s.cc.wallet.Shutdown()
-	s.cc.chainView.Stop()
-	s.connMgr.Stop()
-	s.cc.feeEstimator.Stop()
-	s.invoices.Stop()
 	s.fundingMgr.Stop()
+	s.breachArbiter.Stop()
+	s.utxoNursery.Stop()
 
 	// Disconnect from each active peers to ensure that
 	// peerTerminationWatchers signal completion to each peer.
 	for _, peer := range s.Peers() {
 		s.DisconnectPeer(peer.addr.IdentityKey)
 	}
+
+	s.cc.chainView.Stop()
+	s.cc.feeEstimator.Stop()
+	s.cc.chainNotifier.Stop()
+	s.cc.wallet.Shutdown()
 
 	// Wait for all lingering goroutines to quit.
 	s.wg.Wait()
