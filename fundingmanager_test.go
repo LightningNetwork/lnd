@@ -361,9 +361,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			publTxChan <- txn
 			return nil
 		},
-		ZombieSweeperInterval:  1 * time.Hour,
-		ReservationTimeout:     1 * time.Nanosecond,
-		NotifyOpenChannelEvent: func(wire.OutPoint) {},
+		ZombieSweeperInterval:   1 * time.Hour,
+		ReservationTimeout:      1 * time.Nanosecond,
+		NotifyOpenChannelEvent:  func(wire.OutPoint) {},
+		NotifyReadyChannelEvent: func(wire.OutPoint) {},
 	})
 	if err != nil {
 		t.Fatalf("failed creating fundingManager: %v", err)
@@ -450,8 +451,10 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			publishChan <- txn
 			return nil
 		},
-		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
-		ReservationTimeout:    oldCfg.ReservationTimeout,
+		ZombieSweeperInterval:   oldCfg.ZombieSweeperInterval,
+		ReservationTimeout:      oldCfg.ReservationTimeout,
+		NotifyOpenChannelEvent:  func(wire.OutPoint) {},
+		NotifyReadyChannelEvent: func(wire.OutPoint) {},
 	})
 	if err != nil {
 		t.Fatalf("failed recreating aliceFundingManager: %v", err)

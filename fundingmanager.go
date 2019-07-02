@@ -340,6 +340,11 @@ type fundingConfig struct {
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
 	NotifyOpenChannelEvent func(wire.OutPoint)
+
+	// NotifyReadyChannelEvent notifies an outside subs-system that a
+	// channel is "ready" for use. A channel only becomes ready once the
+	// FundingLocked message is received and processed.
+	NotifyReadyChannelEvent func(wire.OutPoint)
 }
 
 // fundingManager acts as an orchestrator/bridge between the wallet's
@@ -1976,8 +1981,9 @@ func (f *fundingManager) waitForFundingConfirmation(completeChan *channeldb.Open
 	// TODO(halseth): make the two db transactions (MarkChannelAsOpen and
 	// saveChannelOpeningState) atomic by doing them in the same transaction.
 	// Needed to be properly fault-tolerant.
-	err = f.saveChannelOpeningState(&completeChan.FundingOutpoint, markedOpen,
-		&shortChanID)
+	err = f.saveChannelOpeningState(
+		&completeChan.FundingOutpoint, markedOpen, &shortChanID,
+	)
 	if err != nil {
 		fndgLog.Errorf("error setting channel state to markedOpen: %v",
 			err)
@@ -2454,6 +2460,11 @@ func (f *fundingManager) handleFundingLocked(fmsg *fundingLockedMsg) {
 		fndgLog.Errorf("unable to insert next commitment point: %v", err)
 		return
 	}
+
+	// As this is the earliest possible time that the channel can be used
+	// to create/receive commitment updates, we'll mark the channel has
+	// active now.
+	f.cfg.NotifyReadyChannelEvent(channel.FundingOutpoint)
 
 	// Launch a defer so we _ensure_ that the channel barrier is properly
 	// closed even if the target peer is no longer online at this point.

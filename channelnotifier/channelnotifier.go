@@ -45,9 +45,9 @@ type ClosedChannelEvent struct {
 	CloseSummary *channeldb.ChannelCloseSummary
 }
 
-// New creates a new channel notifier. The ChannelNotifier gets channel
-// events from peers and from the chain arbitrator, and dispatches them to
-// its clients.
+// New creates a new channel notifier. The ChannelNotifier gets channel events
+// from peers and from the chain arbitrator, and dispatches them to its
+// clients.
 func New(chanDB *channeldb.DB) *ChannelNotifier {
 	return &ChannelNotifier{
 		ntfnServer: subscribe.NewServer(),
@@ -55,13 +55,14 @@ func New(chanDB *channeldb.DB) *ChannelNotifier {
 	}
 }
 
-// Start starts the ChannelNotifier and all goroutines it needs to carry out its task.
+// Start starts the ChannelNotifier and all goroutines it needs to carry out
+// its task.
 func (c *ChannelNotifier) Start() error {
 	if !atomic.CompareAndSwapUint32(&c.started, 0, 1) {
 		return nil
 	}
 
-	log.Tracef("ChannelNotifier %v starting", c)
+	log.Tracef("ChannelNotifier starting")
 
 	if err := c.ntfnServer.Start(); err != nil {
 		return err
@@ -108,7 +109,8 @@ func (c *ChannelNotifier) NotifyClosedChannelEvent(chanPoint wire.OutPoint) {
 	// Fetch the relevant closed channel from the database.
 	closeSummary, err := c.chanDB.FetchClosedChannel(&chanPoint)
 	if err != nil {
-		log.Warnf("Unable to fetch closed channel summary from the db: %v", err)
+		log.Warnf("Unable to fetch closed channel summary from "+
+			"the db: %v", err)
 	}
 
 	// Send the closed event to all channel event subscribers.
@@ -127,8 +129,8 @@ func (c *ChannelNotifier) NotifyActiveChannelEvent(chanPoint wire.OutPoint) {
 	}
 }
 
-// NotifyInactiveChannelEvent notifies the channelEventNotifier goroutine that a
-// channel is inactive.
+// NotifyInactiveChannelEvent notifies the channelEventNotifier goroutine that
+// a channel is inactive.
 func (c *ChannelNotifier) NotifyInactiveChannelEvent(chanPoint wire.OutPoint) {
 	event := InactiveChannelEvent{ChannelPoint: &chanPoint}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
