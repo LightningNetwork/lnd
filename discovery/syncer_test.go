@@ -1,8 +1,10 @@
 package discovery
 
 import (
+	"errors"
 	"math"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,15 +77,6 @@ func newMockChannelGraphTimeSeries(
 
 func (m *mockChannelGraphTimeSeries) HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error) {
 	return &m.highestID, nil
-}
-func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
-
-	m.horizonReq <- horizonQuery{
-		chain, startTime, endTime,
-	}
-
-	return <-m.horizonResp, nil
 }
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
 	superSet []lnwire.ShortChannelID) ([]lnwire.ShortChannelID, error) {
@@ -344,7 +337,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
-	msgChan, syncer, chanSeries := newTestSyncer(
+	_, syncer, chanSeries := newTestSyncer(
 		lnwire.NewShortChanIDFromInt(10), defaultEncoding,
 		defaultChunkSize,
 	)
@@ -355,82 +348,43 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 		TimestampRange: uint32(1000),
 	}
 
-	// Before we apply the horizon, we'll dispatch a response to the query
-	// that the syncer will issue.
+	// After applying the gossip filter, the chan series should not be
+	// queried using the updated horizon.
+	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		select {
-		case <-time.After(time.Second * 15):
-			t.Fatalf("no query recvd")
+		// No query received, success.
+		case <-time.After(3 * time.Second):
+			errChan <- nil
 
-		case query := <-chanSeries.horizonReq:
-			// The syncer should have translated the time range
-			// into the proper star time.
-			if remoteHorizon.FirstTimestamp != uint32(query.start.Unix()) {
-				t.Fatalf("wrong query stamp: expected %v, got %v",
-					remoteHorizon.FirstTimestamp, query.start)
-			}
-
-			// For this first response, we'll send back an empty
-			// set of messages. As result, we shouldn't send any
-			// messages.
-			chanSeries.horizonResp <- []lnwire.Message{}
+		// Unexpected query received.
+		case <-chanSeries.horizonReq:
+			errChan <- errors.New("chan series should not have been " +
+				"queried")
 		}
 	}()
 
 	// We'll now attempt to apply the gossip filter for the remote peer.
-	err := syncer.ApplyGossipFilter(remoteHorizon)
+	syncer.ApplyGossipFilter(remoteHorizon)
+
+	// Ensure that the syncer's remote horizon was properly updated.
+	if !reflect.DeepEqual(syncer.remoteUpdateHorizon, remoteHorizon) {
+		t.Fatalf("expected remote horizon: %v, got: %v",
+			remoteHorizon, syncer.remoteUpdateHorizon)
+	}
+
+	// Wait for the query check to finish.
+	wg.Wait()
+
+	// Assert that no query was made as a result of applying the gossip
+	// filter.
+	err := <-errChan
 	if err != nil {
-		t.Fatalf("unable to apply filter: %v", err)
-	}
-
-	// There should be no messages in the message queue as we didn't send
-	// the syncer and messages within the horizon.
-	select {
-	case msgs := <-msgChan:
-		t.Fatalf("expected no msgs, instead got %v", spew.Sdump(msgs))
-	default:
-	}
-
-	// If we repeat the process, but give the syncer a set of valid
-	// messages, then these should be sent to the remote peer.
-	go func() {
-		select {
-		case <-time.After(time.Second * 15):
-			t.Fatalf("no query recvd")
-
-		case query := <-chanSeries.horizonReq:
-			// The syncer should have translated the time range
-			// into the proper star time.
-			if remoteHorizon.FirstTimestamp != uint32(query.start.Unix()) {
-				t.Fatalf("wrong query stamp: expected %v, got %v",
-					remoteHorizon.FirstTimestamp, query.start)
-			}
-
-			// For this first response, we'll send back a proper
-			// set of messages that should be echoed back.
-			chanSeries.horizonResp <- []lnwire.Message{
-				&lnwire.ChannelUpdate{
-					ShortChannelID: lnwire.NewShortChanIDFromInt(25),
-					Timestamp:      unixStamp(5),
-				},
-			}
-		}
-	}()
-	err = syncer.ApplyGossipFilter(remoteHorizon)
-	if err != nil {
-		t.Fatalf("unable to apply filter: %v", err)
-	}
-
-	// We should get back the exact same message.
-	select {
-	case <-time.After(time.Second * 15):
-		t.Fatalf("no msgs received")
-
-	case msgs := <-msgChan:
-		if len(msgs) != 1 {
-			t.Fatalf("wrong messages: expected %v, got %v",
-				1, len(msgs))
-		}
+		t.Fatalf(err.Error())
 	}
 }
 

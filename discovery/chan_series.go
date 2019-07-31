@@ -1,8 +1,6 @@
 package discovery
 
 import (
-	"time"
-
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -22,13 +20,6 @@ type ChannelGraphTimeSeries interface {
 	// know it.  We'll use this to start our QueryChannelRange dance with
 	// the remote node.
 	HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error)
-
-	// UpdatesInHorizon returns all known channel and node updates with an
-	// update timestamp between the start time and end time. We'll use this
-	// to catch up a remote node to the set of channel updates that they
-	// may have missed out on within the target chain.
-	UpdatesInHorizon(chain chainhash.Hash,
-		startTime time.Time, endTime time.Time) ([]lnwire.Message, error)
 
 	// FilterKnownChanIDs takes a target chain, and a set of channel ID's,
 	// and returns a filtered set of chan ID's. This filtered set of chan
@@ -90,87 +81,6 @@ func (c *ChanSeries) HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID
 
 	shortChanID := lnwire.NewShortChanIDFromInt(chanID)
 	return &shortChanID, nil
-}
-
-// UpdatesInHorizon returns all known channel and node updates with an update
-// timestamp between the start time and end time. We'll use this to catch up a
-// remote node to the set of channel updates that they may have missed out on
-// within the target chain.
-//
-// NOTE: This is part of the ChannelGraphTimeSeries interface.
-func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
-
-	var updates []lnwire.Message
-
-	// First, we'll query for all the set of channels that have an update
-	// that falls within the specified horizon.
-	chansInHorizon, err := c.graph.ChanUpdatesInHorizon(
-		startTime, endTime,
-	)
-	if err != nil {
-		return nil, err
-	}
-	for _, channel := range chansInHorizon {
-		// If the channel hasn't been fully advertised yet, or is a
-		// private channel, then we'll skip it as we can't construct a
-		// full authentication proof if one is requested.
-		if channel.Info.AuthProof == nil {
-			continue
-		}
-
-		chanAnn, edge1, edge2, err := CreateChanAnnouncement(
-			channel.Info.AuthProof, channel.Info, channel.Policy1,
-			channel.Policy2,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		updates = append(updates, chanAnn)
-		if edge1 != nil {
-			updates = append(updates, edge1)
-		}
-		if edge2 != nil {
-			updates = append(updates, edge2)
-		}
-	}
-
-	// Next, we'll send out all the node announcements that have an update
-	// within the horizon as well. We send these second to ensure that they
-	// follow any active channels they have.
-	nodeAnnsInHorizon, err := c.graph.NodeUpdatesInHorizon(
-		startTime, endTime,
-	)
-	if err != nil {
-		return nil, err
-	}
-	for _, nodeAnn := range nodeAnnsInHorizon {
-		// Ensure we only forward nodes that are publicly advertised to
-		// prevent leaking information about nodes.
-		isNodePublic, err := c.graph.IsPublicNode(nodeAnn.PubKeyBytes)
-		if err != nil {
-			log.Errorf("Unable to determine if node %x is "+
-				"advertised: %v", nodeAnn.PubKeyBytes, err)
-			continue
-		}
-
-		if !isNodePublic {
-			log.Tracef("Skipping forwarding announcement for "+
-				"node %x due to being unadvertised",
-				nodeAnn.PubKeyBytes)
-			continue
-		}
-
-		nodeUpdate, err := nodeAnn.NodeAnnouncement(true)
-		if err != nil {
-			return nil, err
-		}
-
-		updates = append(updates, nodeUpdate)
-	}
-
-	return updates, nil
 }
 
 // FilterKnownChanIDs takes a target chain, and a set of channel ID's, and

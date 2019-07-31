@@ -470,13 +470,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 		// If we've found the message target, then we'll dispatch the
 		// message directly to it.
-		if err := syncer.ApplyGossipFilter(m); err != nil {
-			log.Warnf("Unable to apply gossip filter for peer=%x: "+
-				"%v", peer.PubKey(), err)
-
-			errChan <- err
-			return errChan
-		}
+		syncer.ApplyGossipFilter(m)
 
 		errChan <- nil
 		return errChan
