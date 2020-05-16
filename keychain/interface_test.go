@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required in order to create the default database.
 )
@@ -86,7 +87,7 @@ func createTestBtcWallet(coinType uint32) (func(), *wallet.Wallet, error) {
 	// the keys required for signing various contracts.
 	_, err = baseWallet.Manager.FetchScopedKeyManager(chainKeyScope)
 	if err != nil {
-		err := walletdb.Update(baseWallet.Database(), func(tx walletdb.ReadWriteTx) error {
+		err := kvdb.Update(baseWallet.Database(), func(tx walletdb.ReadWriteTx) error {
 			addrmgrNs := tx.ReadWriteBucket(waddrmgrNamespaceKey)
 
 			_, err := baseWallet.Manager.NewScopedKeyManager(

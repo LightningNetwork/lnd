@@ -44,6 +44,22 @@ var (
 	htlcFailInfoKey = []byte("htlc-fail-info")
 
 	byteOrder = binary.BigEndian
+
+	// failInfo is an empty fail info value for the legacy pre MPP
+	// payments.
+	failInfo = []byte{
+		// Fail time unknown.
+		0, 0, 0, 0, 0, 0, 0, 0,
+
+		// Zero length wire message.
+		0,
+
+		// Failure reason unknown.
+		0,
+
+		// Failure source index zero.
+		0, 0, 0, 0,
+	}
 )
 
 // MigrateMPP migrates the payments to a new structure that accommodates for mpp
@@ -69,6 +85,10 @@ func MigrateMPP(tx kvdb.RwTx) error {
 	}
 
 	// With all keys retrieved, start the migration.
+	var (
+		zero      [8]byte
+		attemptID [8]byte
+	)
 	for _, k := range paymentKeys {
 		bucket := paymentsBucket.NestedReadWriteBucket(k)
 
@@ -114,15 +134,12 @@ func MigrateMPP(tx kvdb.RwTx) error {
 		}
 
 		// Save attempt id for later use.
-		attemptID := attemptInfo[:8]
+		copy(attemptID[:], attemptInfo[:8])
 
-		// Discard attempt id. It will become a bucket key in the new
-		// structure.
-		attemptInfo = attemptInfo[8:]
-
-		// Append unknown (zero) attempt time.
-		var zero [8]byte
-		attemptInfo = append(attemptInfo, zero[:]...)
+		// Copy over the attempt info into a new slice, the last 8
+		// bytes will be zero to mark a zero attempt time.
+		newAttemptInfo := make([]byte, len(attemptInfo))
+		copy(newAttemptInfo, attemptInfo[8:])
 
 		// Create bucket that contains all htlcs.
 		htlcsBucket, err := bucket.CreateBucket(paymentHtlcsBucket)
@@ -131,13 +148,13 @@ func MigrateMPP(tx kvdb.RwTx) error {
 		}
 
 		// Create an htlc for this attempt.
-		htlcBucket, err := htlcsBucket.CreateBucket(attemptID)
+		htlcBucket, err := htlcsBucket.CreateBucket(attemptID[:])
 		if err != nil {
 			return err
 		}
 
 		// Save migrated attempt info.
-		err = htlcBucket.Put(htlcAttemptInfoKey, attemptInfo)
+		err = htlcBucket.Put(htlcAttemptInfoKey, newAttemptInfo)
 		if err != nil {
 			return err
 		}
@@ -175,21 +192,6 @@ func MigrateMPP(tx kvdb.RwTx) error {
 
 		// The htlc failed. Add htlc fail info with reason unknown. We
 		// don't have access to the original failure reason anymore.
-		failInfo := []byte{
-			// Fail time unknown.
-			0, 0, 0, 0, 0, 0, 0, 0,
-
-			// Zero length wire message.
-			0,
-
-			// Failure reason unknown.
-			0,
-
-			// Failure source index zero.
-			0, 0, 0, 0,
-		}
-
-		// Save fail info.
 		err = htlcBucket.Put(htlcFailInfoKey, failInfo)
 		if err != nil {
 			return err

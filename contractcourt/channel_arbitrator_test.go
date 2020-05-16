@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -394,7 +395,10 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			return nil, err
 		}
 		dbPath := filepath.Join(dbDir, "testdb")
-		db, err := kvdb.Create(kvdb.BoltBackendName, dbPath, true)
+		bboltOpts := &bbolt.Options{
+			NoFreelistSync: true,
+		}
+		db, err := kvdb.Create(kvdb.BoltBackendName, dbPath, bboltOpts)
 		if err != nil {
 			return nil, err
 		}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"go.etcd.io/bbolt"
 )
 
 // MakeDB creates a new instance of the ChannelDB for testing purposes. A
@@ -20,7 +21,10 @@ func MakeDB() (kvdb.Backend, func(), error) {
 	}
 
 	dbPath := file.Name()
-	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, bboltOpts)
 	if err != nil {
 		return nil, nil, err
 	}

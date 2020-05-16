@@ -23,7 +23,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
-	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
+	"go.etcd.io/bbolt"
 
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -846,7 +846,11 @@ var interfaceImpls = []struct {
 			}
 
 			dbName := filepath.Join(spvDir, "neutrino.db")
-			spvDatabase, err := walletdb.Create("bdb", dbName, true)
+			spvDatabase, err := walletdb.Create(
+				"bdb", dbName, &bbolt.Options{
+					NoFreelistSync: true,
+				},
+			)
 			if err != nil {
 				return nil, nil, err
 			}

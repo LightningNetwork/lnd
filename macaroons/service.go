@@ -8,6 +8,7 @@ import (
 	"path"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"go.etcd.io/bbolt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
@@ -48,8 +49,11 @@ func NewService(dir string, checks ...Checker) (*Service, error) {
 
 	// Open the database that we'll use to store the primary macaroon key,
 	// and all generated macaroons+caveats.
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
 	macaroonDB, err := kvdb.Create(
-		kvdb.BoltBackendName, path.Join(dir, DBFilename), true,
+		kvdb.BoltBackendName, path.Join(dir, DBFilename), bboltOpts,
 	)
 	if err != nil {
 		return nil, err

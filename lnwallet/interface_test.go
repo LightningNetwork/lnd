@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"go.etcd.io/bbolt"
 )
 
 var (
@@ -3030,7 +3031,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// Start Alice - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.
 			aliceDB, err := walletdb.Create(
-				"bdb", tempTestDirAlice+"/neutrino.db", true,
+				"bdb", tempTestDirAlice+"/neutrino.db",
+				&bbolt.Options{
+					NoFreelistSync: true,
+				},
 			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)
@@ -3058,7 +3062,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 			// Start Bob - open a database, start a neutrino
 			// instance, and initialize a btcwallet driver for it.
 			bobDB, err := walletdb.Create(
-				"bdb", tempTestDirBob+"/neutrino.db", true,
+				"bdb", tempTestDirBob+"/neutrino.db",
+				&bbolt.Options{
+					NoFreelistSync: true,
+				},
 			)
 			if err != nil {
 				t.Fatalf("unable to create DB: %v", err)

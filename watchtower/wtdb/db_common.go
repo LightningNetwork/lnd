@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -65,7 +66,10 @@ func createDBIfNotExist(dbPath, name string) (kvdb.Backend, bool, error) {
 
 	// Specify bbolt freelist options to reduce heap pressure in case the
 	// freelist grows to be very large.
-	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, bboltOpts)
 	if err != nil {
 		return nil, false, err
 	}

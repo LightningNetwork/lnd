@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -105,7 +106,10 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32) ([]htlcAttempt,
 	dbPath := file.Name()
 	defer os.Remove(dbPath)
 
-	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	db, err := kvdb.Open(kvdb.BoltBackendName, dbPath, bboltOpts)
 	if err != nil {
 		c.t.Fatal(err)
 	}

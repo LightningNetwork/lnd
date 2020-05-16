@@ -11,6 +11,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -89,8 +90,11 @@ func (d *DecayedLog) Start() error {
 
 	// Open the boltdb for use.
 	var err error
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
 	d.db, err = kvdb.Create(
-		kvdb.BoltBackendName, d.dbPath, true,
+		kvdb.BoltBackendName, d.dbPath, bboltOpts,
 	)
 	if err != nil {
 		return fmt.Errorf("could not open boltdb: %v", err)

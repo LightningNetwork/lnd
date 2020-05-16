@@ -10,6 +10,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"go.etcd.io/bbolt"
 
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -31,7 +32,10 @@ func TestMissionControlStore(t *testing.T) {
 
 	dbPath := file.Name()
 
-	db, err := kvdb.Create(kvdb.BoltBackendName, dbPath, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	db, err := kvdb.Create(kvdb.BoltBackendName, dbPath, bboltOpts)
 	if err != nil {
 		t.Fatal(err)
 	}

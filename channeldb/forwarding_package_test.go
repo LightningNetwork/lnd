@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"go.etcd.io/bbolt"
 )
 
 // TestPkgFilterBruteForce tests the behavior of a pkg filter up to size 1000,
@@ -806,7 +807,10 @@ func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend { // nolint:unparam
 		path = filepath.Join(path, "fwdpkg.db")
 	}
 
-	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	bdb, err := kvdb.Create(kvdb.BoltBackendName, path, bboltOpts)
 	if err != nil {
 		t.Fatalf("unable to open boltdb: %v", err)
 	}

@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
+	"go.etcd.io/bbolt"
 )
 
 const (
@@ -733,7 +734,11 @@ func initNeutrinoBackend(chainDir string) (*neutrino.ChainService, func(), error
 	}
 
 	dbName := filepath.Join(dbPath, "neutrino.db")
-	db, err := walletdb.Create("bdb", dbName, !cfg.SyncFreelist)
+	db, err := walletdb.Create(
+		"bdb", dbName, &bbolt.Options{
+			NoFreelistSync: !cfg.SyncFreelist,
+		},
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create neutrino "+
 			"database: %v", err)

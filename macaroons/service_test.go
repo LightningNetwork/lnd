@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"go.etcd.io/bbolt"
 	"google.golang.org/grpc/metadata"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon-bakery.v2/bakery/checkers"
@@ -33,8 +34,12 @@ func setupTestRootKeyStorage(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
 	}
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
 	db, err := kvdb.Create(
-		kvdb.BoltBackendName, path.Join(tempDir, "macaroons.db"), true,
+		kvdb.BoltBackendName, path.Join(tempDir, "macaroons.db"),
+		bboltOpts,
 	)
 	if err != nil {
 		t.Fatalf("Error opening store DB: %v", err)

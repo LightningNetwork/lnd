@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"go.etcd.io/bbolt"
 )
 
 var (
@@ -112,7 +113,12 @@ func makeTestDB() (kvdb.Backend, func(), error) {
 		return nil, nil, err
 	}
 
-	db, err := kvdb.Create(kvdb.BoltBackendName, tempDirName+"/test.db", true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	db, err := kvdb.Create(
+		kvdb.BoltBackendName, tempDirName+"/test.db", bboltOpts,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

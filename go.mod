@@ -48,6 +48,7 @@ require (
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.18.0
+	go.etcd.io/bbolt v1.3.3
 	golang.org/x/crypto v0.0.0-20200115085410-6d4e4cb37c7d
 	golang.org/x/net v0.0.0-20190206173232-65e2d4e15006
 	golang.org/x/sys v0.0.0-20200116001909-b77594299b42 // indirect
@@ -73,3 +74,7 @@ replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0
 replace golang.org/x/crypto => golang.org/x/crypto v0.0.0-20190211182817-74369b46fc67
 
 go 1.12
+
+replace github.com/btcsuite/btcwallet/walletdb v1.3.1 => github.com/roasbeef/btcwallet/walletdb v1.1.1-0.20200504232237-d0cfd3720fbc
+
+replace github.com/btcsuite/btcwallet v0.11.1-0.20200403222202-ada7ca077ebb => github.com/roasbeef/btcwallet v0.11.1-0.20200504232237-d0cfd3720fbc

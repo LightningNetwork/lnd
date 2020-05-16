@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"go.etcd.io/bbolt"
 )
 
 var (
@@ -63,7 +64,10 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 
 	ctx.dbPath = file.Name()
 
-	ctx.db, err = kvdb.Open(kvdb.BoltBackendName, ctx.dbPath, true)
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
+	ctx.db, err = kvdb.Open(kvdb.BoltBackendName, ctx.dbPath, bboltOpts)
 	if err != nil {
 		t.Fatal(err)
 	}

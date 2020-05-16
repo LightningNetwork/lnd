@@ -10,6 +10,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"go.etcd.io/bbolt"
 
 	"github.com/btcsuite/btcwallet/snacl"
 )
@@ -21,8 +22,11 @@ func TestStore(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	bboltOpts := &bbolt.Options{
+		NoFreelistSync: true,
+	}
 	db, err := kvdb.Create(
-		kvdb.BoltBackendName, path.Join(tempDir, "weks.db"), true,
+		kvdb.BoltBackendName, path.Join(tempDir, "weks.db"), bboltOpts,
 	)
 	if err != nil {
 		t.Fatalf("Error opening store DB: %v", err)
@@ -78,7 +82,7 @@ func TestStore(t *testing.T) {
 	// a double-close, but that's not such a big deal since the tests will
 	// fail anyway in that case.
 	db, err = kvdb.Create(
-		kvdb.BoltBackendName, path.Join(tempDir, "weks.db"), true,
+		kvdb.BoltBackendName, path.Join(tempDir, "weks.db"), bboltOpts,
 	)
 	if err != nil {
 		t.Fatalf("Error opening store DB: %v", err)
