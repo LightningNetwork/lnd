@@ -47,7 +47,7 @@ require (
 	github.com/prometheus/client_golang v0.9.3
 	github.com/rogpeppe/fastuuid v1.2.0 // indirect
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
-	github.com/urfave/cli v1.18.0
+	github.com/urfave/cli v1.22.4
 	golang.org/x/crypto v0.0.0-20200115085410-6d4e4cb37c7d
 	golang.org/x/net v0.0.0-20190206173232-65e2d4e15006
 	golang.org/x/sys v0.0.0-20200116001909-b77594299b42 // indirect

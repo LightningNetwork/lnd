@@ -214,14 +214,16 @@ func main() {
 			Usage: "host:port of ln daemon",
 		},
 		cli.StringFlag{
-			Name:  "lnddir",
-			Value: defaultLndDir,
-			Usage: "path to lnd's base directory",
+			Name:      "lnddir",
+			Value:     defaultLndDir,
+			Usage:     "path to lnd's base directory",
+			TakesFile: true,
 		},
 		cli.StringFlag{
-			Name:  "tlscertpath",
-			Value: defaultTLSCertPath,
-			Usage: "path to TLS certificate",
+			Name:      "tlscertpath",
+			Value:     defaultTLSCertPath,
+			Usage:     "path to TLS certificate",
+			TakesFile: true,
 		},
 		cli.StringFlag{
 			Name:  "chain, c",
@@ -239,8 +241,9 @@ func main() {
 			Usage: "disable macaroon authentication",
 		},
 		cli.StringFlag{
-			Name:  "macaroonpath",
-			Usage: "path to macaroon file",
+			Name:      "macaroonpath",
+			Usage:     "path to macaroon file",
+			TakesFile: true,
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",
@@ -302,6 +305,7 @@ func main() {
 		bakeMacaroonCommand,
 		trackPaymentCommand,
 		versionCommand,
+		fishCompletionCommand,
 	}
 
 	// Add any extra commands determined by build flags.

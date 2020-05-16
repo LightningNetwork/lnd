@@ -161,6 +161,11 @@ make check
 This command requires `bitcoind` (almost any version should do) to be available
 in the system's `$PATH` variable. Otherwise some of the tests will fail.
 
+**Tab completion for `lncli`**
+
+_Bash_: See `contrib/lncli.bash-completion`  
+_Fish_: Run: `lncli fish-completion > $HOME/.config/fish/completions/lncli.fish`
+
 # Available Backend Operating Modes
 
 In order to run, `lnd` requires, that the user specify a chain backend. At the

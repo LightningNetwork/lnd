@@ -1135,10 +1135,12 @@ var createCommand = cli.Command{
 			Name: "multi_backup",
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
+			TakesFile: true,
 		},
 		cli.StringFlag{
-			Name:  "multi_file",
-			Usage: "the path to a multi-channel back up file",
+			Name:      "multi_file",
+			Usage:     "the path to a multi-channel back up file",
+			TakesFile: true,
 		},
 	},
 	Action: actionDecorator(create),
@@ -2690,6 +2692,21 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	return nil
 }
 
+var fishCompletionCommand = cli.Command{
+	Name:   "fish-completion",
+	Hidden: true,
+	Action: func(c *cli.Context) error {
+		completion, err := c.App.ToFishCompletion()
+		if err != nil {
+			return err
+		}
+		// We don't want to suggest files, so we add this
+		// first line to the completions.
+		_, err = fmt.Printf("complete -c %q -f \n%s", c.App.Name, completion)
+		return err
+	},
+}
+
 var forwardingHistoryCommand = cli.Command{
 	Name:      "fwdinghistory",
 	Category:  "Payments",
@@ -3000,8 +3017,9 @@ var verifyChanBackupCommand = cli.Command{
 				"from exportchanbackup",
 		},
 		cli.StringFlag{
-			Name:  "multi_file",
-			Usage: "the path to a multi-channel back up file",
+			Name:      "multi_file",
+			Usage:     "the path to a multi-channel back up file",
+			TakesFile: true,
 		},
 	},
 	Action: actionDecorator(verifyChanBackup),
@@ -3082,8 +3100,9 @@ var restoreChanBackupCommand = cli.Command{
 				"from exportchanbackup",
 		},
 		cli.StringFlag{
-			Name:  "multi_file",
-			Usage: "the path to a multi-channel back up file",
+			Name:      "multi_file",
+			Usage:     "the path to a multi-channel back up file",
+			TakesFile: true,
 		},
 	},
 	Action: actionDecorator(restoreChanBackup),
