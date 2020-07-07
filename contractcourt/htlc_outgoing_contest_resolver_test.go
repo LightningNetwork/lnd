@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -26,7 +28,7 @@ func TestHtlcOutgoingResolverTimeout(t *testing.T) {
 	ctx := newOutgoingResolverTestContext(t)
 
 	// Start the resolution process in a goroutine.
-	ctx.resolve()
+	ctx.resolve(true)
 
 	// Notify arrival of the block after which the timeout path of the htlc
 	// unlocks.
@@ -46,7 +48,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	// Setup the resolver with our test resolution and start the resolution
 	// process.
 	ctx := newOutgoingResolverTestContext(t)
-	ctx.resolve()
+	ctx.resolve(true)
 
 	// The remote party sweeps the htlc. Notify our resolver of this event.
 	preimage := lntypes.Preimage{}
@@ -55,7 +57,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 			TxIn: []*wire.TxIn{
 				{
 					Witness: [][]byte{
-						{0}, {1}, {2}, preimage[:],
+						{0}, {1}, {2}, preimage[:], {4},
 					},
 				},
 			},
@@ -71,6 +73,96 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 
 	// Assert that the resolver finishes without error.
 	ctx.waitForResult(false)
+}
+
+// TestHtlcOutgoingResolverRemoteClaim tests resolution of an offered htlc that
+// is claimed by the remote party. Specifically, claiming by sending a
+// retribution transaction is tested.
+func TestHtlcOutgoingResolveWithFailure(t *testing.T) {
+	t.Parallel()
+	defer timeout(t)()
+
+	tests := []struct {
+		name         string
+		isEarlySpend bool
+	}{
+		{
+			name:         "output spent before resolver started",
+			isEarlySpend: true,
+		},
+		{
+			name:         "output spent after resolver started",
+			isEarlySpend: false,
+		},
+	}
+
+	for _, test := range tests {
+		// Setup the resolver with our test resolution and start the
+		// resolution process.
+		ctx := newOutgoingResolverTestContext(t)
+
+		// The remote party sweeps the HTLC by sending a retribution
+		// transaction. Notify our resolver of this event.
+		revokKey := bytes.Repeat([]byte{0x00}, 33)
+		spendDetails := &chainntnfs.SpendDetail{
+			SpendingTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					{
+						Witness: [][]byte{
+							{0}, revokKey},
+					},
+				},
+			},
+		}
+
+		if test.isEarlySpend {
+			// To simulate an early spend, we send spendDetails
+			// before running the resolver. Also, the resolver
+			// shouldn't expect for new block epochs.
+			go func() {
+				ctx.notifier.spendChan <- spendDetails
+			}()
+			ctx.resolve(!test.isEarlySpend)
+		} else {
+			// To simulate a late spend, we send spendDetails after
+			// running the resolver. The resolver also receives a
+			// new block epoch.
+			ctx.resolve(test.isEarlySpend)
+			ctx.notifier.spendChan <- spendDetails
+		}
+
+		// We expect a resolution message to the incoming side of the
+		// circuit.
+		resMsg := <-ctx.resolutionChan
+
+		// We expect preImage to be nil because it wasn't revealed.
+		if resMsg.PreImage != nil {
+			t.Errorf("didn't expect a pre-image, got '%x'",
+				*resMsg.PreImage)
+		}
+
+		// We expect the resolution message to contain a failure.
+		_, ok := resMsg.Failure.(*lnwire.FailPermanentChannelFailure)
+		if !ok {
+			t.Errorf("expected resolution message to have a "+
+				"failure of type "+
+				"lnwire.FailPermanentChannelFailure, got %+v",
+				resMsg.Failure)
+		}
+
+		// We expect the resolution message to contain a proper channel
+		// ID.
+		if resMsg.SourceChan.BlockHeight != 31337 ||
+			resMsg.SourceChan.TxIndex != 13 ||
+			resMsg.SourceChan.TxPosition != 1 {
+			t.Errorf("expected resolution message to have channel "+
+				"ID 31337:13:1, "+
+				"got %+v", resMsg.SourceChan)
+		}
+
+		// Assert that the resolver finishes without error.
+		ctx.waitForResult(false)
+	}
 }
 
 type resolveResult struct {
@@ -117,6 +209,11 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 			},
 			OnionProcessor: onionProcessor,
 		},
+		ShortChanID: lnwire.ShortChannelID{
+			BlockHeight: 31337,
+			TxIndex:     13,
+			TxPosition:  1,
+		},
 	}
 
 	outgoingRes := lnwallet.OutgoingHtlcResolution{
@@ -154,7 +251,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 	}
 }
 
-func (i *outgoingResolverTestContext) resolve() {
+func (i *outgoingResolverTestContext) resolve(notifyInitialBlockHeight bool) {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
@@ -165,8 +262,11 @@ func (i *outgoingResolverTestContext) resolve() {
 		}
 	}()
 
-	// Notify initial block height.
-	i.notifyEpoch(testInitialBlockHeight)
+	// Notify initial block height. This is not needed when the output
+	// has been spent before the resolver started.
+	if notifyInitialBlockHeight {
+		i.notifyEpoch(testInitialBlockHeight)
+	}
 }
 
 func (i *outgoingResolverTestContext) notifyEpoch(height int32) {

@@ -13,7 +13,9 @@ import (
 // outgoing HTLC that is still contested. An HTLC is still contested, if at the
 // time that we broadcast the commitment transaction, it isn't able to be fully
 // resolved. In this case, we'll either wait for the HTLC to timeout, or for
-// us to learn of the preimage.
+// the output to be spent by one of the two scenarios:
+//   1. Successful spent that reveals pre-image.
+//   2. Retribution spent that uses revocation key.
 type htlcOutgoingContestResolver struct {
 	// htlcTimeoutResolver is the inner solver that this resolver may turn
 	// into. This only happens if the HTLC expires on-chain.
@@ -36,7 +38,7 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 }
 
 // Resolve commences the resolution of this contract. As this contract hasn't
-// yet timed out, we'll wait for one of two things to happen
+// yet timed out, we'll wait for one of three things to happen
 //
 //   1. The HTLC expires. In this case, we'll sweep the funds and send a clean
 //      up cancel message to outside sub-systems.
@@ -45,7 +47,11 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 //      pre-image to our global cache, then send a clean up settle message
 //      backwards.
 //
-// When either of these two things happens, we'll create a new resolver which
+//   3. The remote party sweeps this HTLC on-chain using a retribution
+//      transaction. This scenario doesn't reveal a pre-image and fails
+//      the incoming link.
+//
+// When either of these three things happens, we'll create a new resolver which
 // is able to handle the final resolution of the contract. We're only the pivot
 // point.
 func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
@@ -68,7 +74,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	}
 
 	// First, we'll register for a spend notification for this output. If
-	// the remote party sweeps with the pre-image, we'll be notified.
+	// the remote party sweeps with the pre-image or by a retribution,
+	// we'll be notified.
 	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
 		outPointToWatch, scriptToWatch, h.broadcastHeight,
 	)
@@ -76,26 +83,9 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
-	// We'll quickly check to see if the output has already been spent.
-	select {
-	// If the output has already been spent, then we can stop early and
-	// sweep the pre-image from the output.
-	case commitSpend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-		// TODO(roasbeef): Checkpoint?
-		return h.claimCleanUp(commitSpend)
-
-	// If it hasn't, then we'll watch for both the expiration, and the
-	// sweeping out this output.
-	default:
-	}
-
 	// If we reach this point, then we can't fully act yet, so we'll await
-	// either of our signals triggering: the HTLC expires, or we learn of
-	// the preimage.
+	// either of our signals triggering: the HTLC expires, we learn of
+	// the preimage, or a retribution transaction is sent.
 	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return nil, err
@@ -134,18 +124,23 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 				return &h.htlcTimeoutResolver, nil
 			}
 
-		// The output has been spent! This means the preimage has been
-		// revealed on-chain.
+		// The output has been spent!
 		case commitSpend, ok := <-spendNtfn.Spend:
 			if !ok {
 				return nil, errResolverShuttingDown
 			}
 
-			// The only way this output can be spent by the remote
-			// party is by revealing the preimage. So we'll perform
-			// our duties to clean up the contract once it has been
-			// claimed.
-			return h.claimCleanUp(commitSpend)
+			// If the output was successfully spent and the
+			// pre-image was revealed we'll sweep it from the
+			// output.
+			if isSuccessSpend(commitSpend,
+				h.htlcResolution.SignedTimeoutTx != nil) {
+				return h.claimCleanUp(commitSpend)
+			}
+
+			// The output was spent without revealing a pre-image. This happens
+			// when a retribution transaction was sent.
+			return h.emergencyCleanUp()
 
 		case <-h.quit:
 			return nil, fmt.Errorf("resolver canceled")
