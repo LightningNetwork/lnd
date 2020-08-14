@@ -193,6 +193,11 @@ func NewCircuitMap(cfg *CircuitMapConfig) (CircuitMap, error) {
 		return nil, err
 	}
 
+	// Delete old circuits and keystones of closed channels
+	if err := cm.cleanClosedChannels(); err != nil {
+		return nil, err
+	}
+
 	// Load any previously persisted circuit into back into memory.
 	if err := cm.restoreMemState(); err != nil {
 		return nil, err
@@ -222,6 +227,134 @@ func (cm *circuitMap) initBuckets() error {
 		_, err = tx.CreateTopLevelBucket(circuitAddKey)
 		return err
 	})
+}
+
+// cleanClosedChannels deletes all circuits and keystones related to closed
+// channels. It first reads all the closed channels and cache the ShortChanIDs
+// into a map for fast lookup. Then it iterates the circuit bucket and keystone
+// bucket and deletes items whose ChanID matches the ShortChanID.
+//
+// NOTE: this operation can also be built into restoreMemState since the latter
+// already opens and iterates the two root buckets, circuitAddKey and
+// circuitKeystoneKey. Depending on the size of the buckets, this marginal gain
+// may be worth investigating. Atm, for clarity, this operation is wrapped into
+// its own function.
+func (cm *circuitMap) cleanClosedChannels() error {
+	log.Infof("Cleaning circuits from disk for closed channels")
+
+	var (
+		targetChanIDs       = make(map[lnwire.ShortChannelID]int)
+		numCircuitsDeleted  = 0
+		numKeystonesDeleted = 0
+	)
+
+	// Find closed channels and cache their ShortChannelIDs into a map.
+	// This map will be used for looking up relative circuits and keystones.
+	closedChannels, err := cm.cfg.DB.FetchClosedChannels(false)
+	if err != nil {
+		return err
+	}
+	for _, closedChannel := range closedChannels {
+		// skip if the channel close is pending
+		if closedChannel.IsPending {
+			continue
+		}
+		targetChanIDs[closedChannel.ShortChanID] = 1
+	}
+
+	// Delete all the circuits and keystones whoes key prefix matches the
+	// ShortChanIDs in the map.
+	if err := kvdb.Update(cm.cfg.DB, func(tx kvdb.RwTx) error {
+		circuitBkt := tx.ReadWriteBucket(circuitAddKey)
+		if circuitBkt == nil {
+			return ErrCorruptedCircuitMap
+		}
+		keystoneBkt := tx.ReadWriteBucket(circuitKeystoneKey)
+		if keystoneBkt == nil {
+			return ErrCorruptedCircuitMap
+		}
+
+		// If a circuit's incoming key prefix matches the ShortChanID,
+		// it will be deleted. However, if the ShortChanID is zero, the
+		// circuit will be kept as it indicates a locally initiated
+		// payment.
+		if err := circuitBkt.ForEach(func(_, v []byte) error {
+			circuit, err := cm.decodeCircuit(v)
+			if err != nil {
+				return err
+			}
+
+			// Skip if the incoming short channel id is zero-value.
+			if circuit.Incoming.ChanID.ToUint64() == 0 {
+				return nil
+			}
+
+			// Check if the incoming channel ID can be found in the
+			// map. Skip if no matches found.
+			_, found := targetChanIDs[circuit.Incoming.ChanID]
+			if !found {
+				return nil
+			}
+
+			// Delete the ciruit.
+			inKey := circuit.InKey()
+			if err := circuitBkt.Delete(inKey.Bytes()); err != nil {
+				return err
+			}
+
+			numCircuitsDeleted++
+
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		// If a keystone's InKey matches the short channel id in the
+		// map, it will be deleted.
+		if err := keystoneBkt.ForEach(func(k, v []byte) error {
+			// Decode the incoming circuit key.
+			inKey := &channeldb.CircuitKey{}
+			reader := bytes.NewReader(v)
+			if err := inKey.Decode(reader); err != nil {
+				return err
+			}
+
+			// Skip if the incoming short channel id is zero-value.
+			if inKey.ChanID.ToUint64() == 0 {
+				return nil
+			}
+
+			// Check if the circuit key channel ID can be found in
+			// the map. Skip if no matches found.
+			_, found := targetChanIDs[inKey.ChanID]
+			if !found {
+				return nil
+			}
+
+			// Delete the keystone using the outgoing key.
+			if err := keystoneBkt.Delete(k); err != nil {
+				return err
+			}
+
+			numKeystonesDeleted++
+
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	log.Infof(
+		"Finished cleaning: num_closed_channel=%v, "+
+			"num_circuits=%v, num_keystone=%v",
+		len(closedChannels), numCircuitsDeleted, numKeystonesDeleted,
+	)
+
+	return nil
 }
 
 // restoreMemState loads the contents of the half circuit and full circuit
