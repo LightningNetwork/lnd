@@ -401,6 +401,9 @@ type FwdPackager interface {
 	// RemovePkg deletes a forwarding package owned by this channel at
 	// the provided remote `height`.
 	RemovePkg(tx kvdb.RwTx, height uint64) error
+
+	// Wipe deletes all the forwarding packages owned by this channel.
+	Wipe(tx kvdb.RwTx) error
 }
 
 // ChannelPackager is used by a channel to manage the lifecycle of its forwarding
@@ -910,6 +913,29 @@ func (p *ChannelPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 	heightKey := makeLogKey(height)
 
 	return sourceBkt.DeleteNestedBucket(heightKey[:])
+}
+
+// Wipe deletes all the channel's forwarding packages, if any. It's called
+// when the channel is closed via CloseChannel.
+func (p *ChannelPackager) Wipe(tx kvdb.RwTx) error {
+	// If the root bucket doesn't exist, there's no need to delete.
+	fwdPkgBkt := tx.ReadWriteBucket(fwdPackagesKey)
+	if fwdPkgBkt == nil {
+		return nil
+	}
+
+	sourceBytes := makeLogKey(p.source.ToUint64())
+
+	// If the nested bucket doesn't exist, there's no need to delete.
+	if fwdPkgBkt.NestedReadWriteBucket(sourceBytes[:]) == nil {
+		return nil
+	}
+
+	if err := fwdPkgBkt.DeleteNestedBucket(sourceBytes[:]); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // uint16Key writes the provided 16-bit unsigned integer to a 2-byte slice.
