@@ -218,8 +218,8 @@ type Switch struct {
 	cfg *Config
 
 	// networkResults stores the results of payments initiated by the user.
-	// results. The store is used to later look up the payments and notify
-	// the user of the result when they are complete. Each payment attempt
+	// The store is used to later look up the payments and notify the
+	// user of the result when they are complete. Each payment attempt
 	// should be given a unique integer ID when it is created, otherwise
 	// results might be overwritten.
 	networkResults *networkResultStore
