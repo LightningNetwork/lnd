@@ -513,6 +513,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 	shortChanID := lnwire.NewShortChanIDFromInt(
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
+	chanID := lnwire.NewChanIDFromOutPoint(prevOut)
 
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
@@ -529,7 +530,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Packager:                channeldb.NewChannelPackager(chanID),
 		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -546,7 +547,7 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
 	// Set custom values on the channel states.
@@ -685,7 +686,6 @@ func createTestPeer(notifier chainntnfs.ChainNotifier,
 
 	alicePeer := NewBrontide(*cfg)
 
-	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels[chanID] = channelAlice
 
 	alicePeer.wg.Add(1)

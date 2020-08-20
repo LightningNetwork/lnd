@@ -37,8 +37,8 @@ const (
 
 var (
 	// fwdPackagesKey is the root-level bucket that all forwarding packages
-	// are written. This bucket is further subdivided based on the short
-	// channel ID of each channel.
+	// are written. This bucket is further subdivided based on the channel
+	// ID of each channel.
 	fwdPackagesKey = []byte("fwd-packages")
 
 	// addBucketKey is the bucket to which all Add log updates are written.
@@ -181,7 +181,7 @@ func (f *PkgFilter) Decode(r io.Reader) error {
 
 // FwdPkg records all adds, settles, and fails that were locked in as a result
 // of the remote peer sending us a revocation. Each package is identified by
-// the short chanid and remote commitment height corresponding to the revocation
+// the channel id and remote commitment height corresponding to the revocation
 // that locked in the HTLCs. For everything except a locally initiated payment,
 // settles and fails in a forwarding package must have a corresponding Add in
 // another package, and can be removed individually once the source link has
@@ -194,7 +194,7 @@ func (f *PkgFilter) Decode(r io.Reader) error {
 // removed.
 type FwdPkg struct {
 	// Source identifies the channel that wrote this forwarding package.
-	Source lnwire.ShortChannelID
+	Source lnwire.ChannelID
 
 	// Height is the height of the remote commitment chain that locked in
 	// this forwarding package.
@@ -231,7 +231,7 @@ type FwdPkg struct {
 
 // NewFwdPkg initializes a new forwarding package in FwdStateLockedIn. This
 // should be used to create a package at the time we receive a revocation.
-func NewFwdPkg(source lnwire.ShortChannelID, height uint64,
+func NewFwdPkg(source lnwire.ChannelID, height uint64,
 	addUpdates, settleFailUpdates []LogUpdate) *FwdPkg {
 
 	nAddUpdates := uint16(len(addUpdates))
@@ -252,8 +252,8 @@ func NewFwdPkg(source lnwire.ShortChannelID, height uint64,
 // ID returns an unique identifier for this package, used to ensure that sphinx
 // replay processing of this batch is idempotent.
 func (f *FwdPkg) ID() []byte {
-	var id = make([]byte, 16)
-	byteOrder.PutUint64(id[:8], f.Source.ToUint64())
+	var id = make([]byte, 38)
+	copy(id[:32], f.Source[:])
 	byteOrder.PutUint64(id[8:], f.Height)
 	return id
 }
@@ -264,7 +264,7 @@ func (f *FwdPkg) String() string {
 		f, f.Source, f.Height, len(f.Adds), len(f.SettleFails))
 }
 
-// AddRef is used to identify a particular Add in a FwdPkg. The short channel ID
+// AddRef is used to identify a particular Add in a FwdPkg. The channel ID
 // is assumed to be that of the packager.
 type AddRef struct {
 	// Height is the remote commitment height that locked in the Add.
@@ -301,7 +301,7 @@ type SettleFailRef struct {
 	// Source identifies the outgoing link that locked in the settle or
 	// fail. This is then used by the *incoming* link to find the settle
 	// fail in another link's forwarding packages.
-	Source lnwire.ShortChannelID
+	Source lnwire.ChannelID
 
 	// Height is the remote commitment height that locked in this
 	// Settle/Fail.
@@ -327,7 +327,7 @@ type GlobalFwdPkgReader interface {
 	// LoadChannelFwdPkgs loads all known forwarding packages for the given
 	// channel.
 	LoadChannelFwdPkgs(tx kvdb.RwTx,
-		source lnwire.ShortChannelID) ([]*FwdPkg, error)
+		source lnwire.ChannelID) ([]*FwdPkg, error)
 }
 
 // FwdOperator defines the interfaces for managing forwarding packages that are
@@ -365,7 +365,7 @@ func (*SwitchPackager) AckSettleFails(tx kvdb.RwTx,
 
 // LoadChannelFwdPkgs loads all forwarding packages for a particular channel.
 func (*SwitchPackager) LoadChannelFwdPkgs(tx kvdb.RwTx,
-	source lnwire.ShortChannelID) ([]*FwdPkg, error) {
+	source lnwire.ChannelID) ([]*FwdPkg, error) {
 
 	return loadChannelFwdPkgs(tx, source)
 }
@@ -409,11 +409,11 @@ type FwdPackager interface {
 // remove fail/settle htlcs that correspond to an add contained in one of
 // source's packages.
 type ChannelPackager struct {
-	source lnwire.ShortChannelID
+	source lnwire.ChannelID
 }
 
 // NewChannelPackager creates a new packager for a single channel.
-func NewChannelPackager(source lnwire.ShortChannelID) *ChannelPackager {
+func NewChannelPackager(source lnwire.ChannelID) *ChannelPackager {
 	return &ChannelPackager{
 		source: source,
 	}
@@ -426,8 +426,7 @@ func (*ChannelPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *FwdPkg) error {
 		return err
 	}
 
-	source := makeLogKey(fwdPkg.Source.ToUint64())
-	sourceBkt, err := fwdPkgBkt.CreateBucketIfNotExists(source[:])
+	sourceBkt, err := fwdPkgBkt.CreateBucketIfNotExists(fwdPkg.Source[:])
 	if err != nil {
 		return err
 	}
@@ -502,14 +501,13 @@ func (p *ChannelPackager) LoadFwdPkgs(tx kvdb.RTx) ([]*FwdPkg, error) {
 }
 
 // loadChannelFwdPkgs loads all forwarding packages owned by `source`.
-func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ShortChannelID) ([]*FwdPkg, error) {
+func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ChannelID) ([]*FwdPkg, error) {
 	fwdPkgBkt := tx.ReadBucket(fwdPackagesKey)
 	if fwdPkgBkt == nil {
 		return nil, nil
 	}
 
-	sourceKey := makeLogKey(source.ToUint64())
-	sourceBkt := fwdPkgBkt.NestedReadBucket(sourceKey[:])
+	sourceBkt := fwdPkgBkt.NestedReadBucket(source[:])
 	if sourceBkt == nil {
 		return nil, nil
 	}
@@ -543,11 +541,10 @@ func loadChannelFwdPkgs(tx kvdb.RTx, source lnwire.ShortChannelID) ([]*FwdPkg, e
 
 // loadFwPkg reads the packager's fwd pkg at a given height, and determines the
 // appropriate FwdState.
-func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
+func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ChannelID,
 	height uint64) (*FwdPkg, error) {
 
-	sourceKey := makeLogKey(source.ToUint64())
-	sourceBkt := fwdPkgBkt.NestedReadBucket(sourceKey[:])
+	sourceBkt := fwdPkgBkt.NestedReadBucket(source[:])
 	if sourceBkt == nil {
 		return nil, ErrCorruptedFwdPkg
 	}
@@ -682,8 +679,7 @@ func (p *ChannelPackager) SetFwdFilter(tx kvdb.RwTx, height uint64,
 		return ErrCorruptedFwdPkg
 	}
 
-	source := makeLogKey(p.source.ToUint64())
-	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(source[:])
+	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(p.source[:])
 	if sourceBkt == nil {
 		return ErrCorruptedFwdPkg
 	}
@@ -723,8 +719,7 @@ func (p *ChannelPackager) AckAddHtlcs(tx kvdb.RwTx, addRefs ...AddRef) error {
 		return ErrCorruptedFwdPkg
 	}
 
-	sourceKey := makeLogKey(p.source.ToUint64())
-	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(sourceKey[:])
+	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(p.source[:])
 	if sourceBkt == nil {
 		return ErrCorruptedFwdPkg
 	}
@@ -813,7 +808,7 @@ func ackSettleFails(tx kvdb.RwTx, settleFailRefs []SettleFailRef) error {
 
 	// Organize the forward references such that we just get a single slice
 	// of indexes for each unique destination-height pair.
-	destHeightDiffs := make(map[lnwire.ShortChannelID]map[uint64][]uint16)
+	destHeightDiffs := make(map[lnwire.ChannelID]map[uint64][]uint16)
 	for _, settleFailRef := range settleFailRefs {
 		destHeights, ok := destHeightDiffs[settleFailRef.Source]
 		if !ok {
@@ -831,8 +826,7 @@ func ackSettleFails(tx kvdb.RwTx, settleFailRefs []SettleFailRef) error {
 	// each remote bucket, and update the settle fail filter for any
 	// settle/fail htlcs.
 	for dest, destHeights := range destHeightDiffs {
-		destKey := makeLogKey(dest.ToUint64())
-		destBkt := fwdPkgBkt.NestedReadWriteBucket(destKey[:])
+		destBkt := fwdPkgBkt.NestedReadWriteBucket(dest[:])
 		if destBkt == nil {
 			// If the destination bucket is not found, this is
 			// likely the result of the destination channel being
@@ -901,8 +895,7 @@ func (p *ChannelPackager) RemovePkg(tx kvdb.RwTx, height uint64) error {
 		return nil
 	}
 
-	sourceBytes := makeLogKey(p.source.ToUint64())
-	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(sourceBytes[:])
+	sourceBkt := fwdPkgBkt.NestedReadWriteBucket(p.source[:])
 	if sourceBkt == nil {
 		return ErrCorruptedFwdPkg
 	}

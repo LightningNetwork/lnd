@@ -195,8 +195,8 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 
 	db := makeFwdPkgDB(t, "")
 
-	shortChanID := lnwire.NewShortChanIDFromInt(1)
-	packager := channeldb.NewChannelPackager(shortChanID)
+	var chanID [32]byte
+	packager := channeldb.NewChannelPackager(chanID)
 
 	// To begin, there should be no forwarding packages on disk.
 	fwdPkgs := loadFwdPkgs(t, db, packager)
@@ -205,7 +205,7 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 	}
 
 	// Next, create and write a new forwarding package with no htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, nil, nil)
+	fwdPkg := channeldb.NewFwdPkg(chanID, 0, nil, nil)
 
 	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.AddFwdPkg(tx, fwdPkg)
@@ -264,8 +264,8 @@ func TestPackagerOnlyAdds(t *testing.T) {
 
 	db := makeFwdPkgDB(t, "")
 
-	shortChanID := lnwire.NewShortChanIDFromInt(1)
-	packager := channeldb.NewChannelPackager(shortChanID)
+	var chanID [32]byte
+	packager := channeldb.NewChannelPackager(chanID)
 
 	// To begin, there should be no forwarding packages on disk.
 	fwdPkgs := loadFwdPkgs(t, db, packager)
@@ -275,7 +275,7 @@ func TestPackagerOnlyAdds(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, nil)
+	fwdPkg := channeldb.NewFwdPkg(chanID, 0, adds, nil)
 
 	nAdds := len(adds)
 
@@ -366,8 +366,8 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 	db := makeFwdPkgDB(t, "")
 
-	shortChanID := lnwire.NewShortChanIDFromInt(1)
-	packager := channeldb.NewChannelPackager(shortChanID)
+	var chanID [32]byte
+	packager := channeldb.NewChannelPackager(chanID)
 
 	// To begin, there should be no forwarding packages on disk.
 	fwdPkgs := loadFwdPkgs(t, db, packager)
@@ -377,7 +377,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, nil, settleFails)
+	fwdPkg := channeldb.NewFwdPkg(chanID, 0, nil, settleFails)
 
 	nSettleFails := len(settleFails)
 
@@ -423,7 +423,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 		assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 		failSettleRef := channeldb.SettleFailRef{
-			Source: shortChanID,
+			Source: chanID,
 			Height: fwdPkg.Height,
 			Index:  uint16(i),
 		}
@@ -470,8 +470,8 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 
 	db := makeFwdPkgDB(t, "")
 
-	shortChanID := lnwire.NewShortChanIDFromInt(1)
-	packager := channeldb.NewChannelPackager(shortChanID)
+	var chanID [32]byte
+	packager := channeldb.NewChannelPackager(chanID)
 
 	// To begin, there should be no forwarding packages on disk.
 	fwdPkgs := loadFwdPkgs(t, db, packager)
@@ -481,7 +481,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, settleFails)
+	fwdPkg := channeldb.NewFwdPkg(chanID, 0, adds, settleFails)
 
 	nAdds := len(adds)
 	nSettleFails := len(settleFails)
@@ -554,7 +554,7 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 		assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 		failSettleRef := channeldb.SettleFailRef{
-			Source: shortChanID,
+			Source: chanID,
 			Height: fwdPkg.Height,
 			Index:  uint16(i),
 		}
@@ -603,8 +603,8 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 
 	db := makeFwdPkgDB(t, "")
 
-	shortChanID := lnwire.NewShortChanIDFromInt(1)
-	packager := channeldb.NewChannelPackager(shortChanID)
+	var chanID [32]byte
+	packager := channeldb.NewChannelPackager(chanID)
 
 	// To begin, there should be no forwarding packages on disk.
 	fwdPkgs := loadFwdPkgs(t, db, packager)
@@ -614,7 +614,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 
 	// Next, create and write a new forwarding package that has both add
 	// and settle/fail htlcs.
-	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, settleFails)
+	fwdPkg := channeldb.NewFwdPkg(chanID, 0, adds, settleFails)
 
 	nAdds := len(adds)
 	nSettleFails := len(settleFails)
@@ -664,7 +664,7 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 		assertAckFilterIsFull(t, fwdPkgs[0], false)
 
 		failSettleRef := channeldb.SettleFailRef{
-			Source: shortChanID,
+			Source: chanID,
 			Height: fwdPkg.Height,
 			Index:  uint16(i),
 		}

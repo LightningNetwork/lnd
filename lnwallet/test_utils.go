@@ -289,6 +289,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 	shortChanID := lnwire.NewShortChanIDFromInt(
 		binary.BigEndian.Uint64(chanIDBytes[:]),
 	)
+	chanID := lnwire.NewChanIDFromOutPoint(prevOut)
 
 	aliceChannelState := &channeldb.OpenChannel{
 		LocalChanCfg:            aliceCfg,
@@ -305,7 +306,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		LocalCommitment:         aliceCommit,
 		RemoteCommitment:        aliceCommit,
 		Db:                      dbAlice,
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Packager:                channeldb.NewChannelPackager(chanID),
 		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
@@ -323,7 +324,7 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		LocalCommitment:         bobCommit,
 		RemoteCommitment:        bobCommit,
 		Db:                      dbBob,
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Packager:                channeldb.NewChannelPackager(chanID),
 	}
 
 	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}

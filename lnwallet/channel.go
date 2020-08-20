@@ -373,7 +373,7 @@ type PaymentDescriptor struct {
 //
 // NOTE: The provided `logUpdates` MUST corresponding exactly to either the Adds
 // or SettleFails in this channel's forwarding package at `height`.
-func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
+func PayDescsFromRemoteLogUpdates(chanID lnwire.ChannelID, height uint64,
 	logUpdates []channeldb.LogUpdate) ([]*PaymentDescriptor, error) {
 
 	// Allocate enough space to hold all of the payment descriptors we will
@@ -4641,7 +4641,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	remoteChainTail := lc.remoteCommitChain.tail().height + 1
 	localChainTail := lc.localCommitChain.tail().height
 
-	source := lc.ShortChanID()
 	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
 
 	// Determine the set of htlcs that can be forwarded as a result of
@@ -4712,7 +4711,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			// this forwarded Settle/Fail will be written in the
 			// forwarding package constructed at this remote height.
 			pd.DestRef = &channeldb.SettleFailRef{
-				Source: source,
+				Source: chanID,
 				Height: remoteChainTail,
 				Index:  settleFailIndex,
 			}
@@ -4790,7 +4789,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// type, construct a forwarding package using the height that the remote
 	// commitment chain will be extended after persisting the revocation.
 	fwdPkg := channeldb.NewFwdPkg(
-		source, remoteChainTail, addUpdates, settleFailUpdates,
+		chanID, remoteChainTail, addUpdates, settleFailUpdates,
 	)
 
 	// At this point, the revocation has been accepted, and we've rotated

@@ -900,7 +900,8 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 
 	c.IsPending = false
 	c.ShortChannelID = openLoc
-	c.Packager = NewChannelPackager(openLoc)
+	chanID := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
+	c.Packager = NewChannelPackager(chanID)
 
 	return nil
 }
@@ -1329,7 +1330,8 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 		return nil, fmt.Errorf("unable to fetch chan revocations: %v", err)
 	}
 
-	channel.Packager = NewChannelPackager(channel.ShortChannelID)
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	channel.Packager = NewChannelPackager(chanID)
 
 	return channel, nil
 }
@@ -3295,8 +3297,8 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	if err := readChanConfig(r, &channel.RemoteChanCfg); err != nil {
 		return err
 	}
-
-	channel.Packager = NewChannelPackager(channel.ShortChannelID)
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	channel.Packager = NewChannelPackager(chanID)
 
 	// Finally, read the optional shutdown scripts.
 	if err := getOptionalUpfrontShutdownScript(
