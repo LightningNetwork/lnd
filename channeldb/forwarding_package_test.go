@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // TestPkgFilterBruteForce tests the behavior of a pkg filter up to size 1000,
@@ -727,6 +728,45 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 	if len(fwdPkgs) != 0 {
 		t.Fatalf("no forwarding packages should exist, found %d", len(fwdPkgs))
 	}
+}
+
+// TestPackagerWipeAll checks that when the method is called, all the related
+// forwarding packages will be removed.
+func TestPackagerWipeAll(t *testing.T) {
+	t.Parallel()
+
+	db := makeFwdPkgDB(t, "")
+
+	shortChanID := lnwire.NewShortChanIDFromInt(1)
+	packager := channeldb.NewChannelPackager(shortChanID)
+
+	// To begin, there should be no forwarding packages on disk.
+	fwdPkgs := loadFwdPkgs(t, db, packager)
+	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
+
+	// Next, create and write two forwarding packages with no htlcs.
+	fwdPkg1 := channeldb.NewFwdPkg(shortChanID, 0, nil, nil)
+	fwdPkg2 := channeldb.NewFwdPkg(shortChanID, 1, nil, nil)
+
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		if err := packager.AddFwdPkg(tx, fwdPkg2); err != nil {
+			return err
+		}
+		return packager.AddFwdPkg(tx, fwdPkg1)
+	})
+	require.NoError(t, err, "unable to add fwd pkg")
+
+	// There should now be two fwdpkgs on disk.
+	fwdPkgs = loadFwdPkgs(t, db, packager)
+	require.Equal(t, 2, len(fwdPkgs), "expected 2 fwdpkg")
+
+	// Now, wipe all forwarding packages from disk.
+	err = kvdb.Update(db, packager.Wipe)
+	require.NoError(t, err, "unable to wipe fwdpkg")
+
+	// Check that the packages were actually removed.
+	fwdPkgs = loadFwdPkgs(t, db, packager)
+	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
 // assertFwdPkgState checks the current state of a fwdpkg meets our

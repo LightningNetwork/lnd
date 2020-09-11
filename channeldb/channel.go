@@ -1684,13 +1684,12 @@ func (h *HTLC) Copy() HTLC {
 
 // LogUpdate represents a pending update to the remote commitment chain. The
 // log update may be an add, fail, or settle entry. We maintain this data in
-// order to be able to properly retransmit our proposed
-// state if necessary.
+// order to be able to properly retransmit our proposed state if necessary.
 type LogUpdate struct {
 	// LogIndex is the log index of this proposed commitment update entry.
 	LogIndex uint64
 
-	// UpdateMsg is the update message that was included within the our
+	// UpdateMsg is the update message that was included within our
 	// local update log. The LogIndex value denotes the log index of this
 	// update which will be used when restoring our local update log if
 	// we're left with a dangling update on restart.
@@ -2722,6 +2721,12 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 			chanBucket, &c.FundingOutpoint,
 		)
 		if err != nil {
+			return err
+		}
+
+		// Delete all the forwarding packages stored for this particular
+		// channel.
+		if err = chanState.Packager.Wipe(tx); err != nil {
 			return err
 		}
 

@@ -2,25 +2,36 @@ package htlcswitch_test
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
+	"io"
 	"io/ioutil"
+	"math/rand"
 	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 var (
 	hash1 = [32]byte{0x01}
 	hash2 = [32]byte{0x02}
 	hash3 = [32]byte{0x03}
+
+	// closedChannelBucket stores summarization information concerning
+	// previously open, but now closed channels.
+	closedChannelBucket = []byte("closed-chan-bucket")
 
 	// sphinxPrivKey is the private key given to freshly created sphinx
 	// routers.
@@ -1312,8 +1323,8 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 	}
 }
 
-// TestCircuitMapDeleteUnopenedCircuit checks that an open circuit can be
-// removed persistently from the circuit map.
+// TestCircuitMapDeleteOpenCircuit checks that an open circuit can be removed
+// persistently from the circuit map.
 func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 	t.Parallel()
 
@@ -1383,4 +1394,291 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 		t.Fatalf("unexpected open circuit: got %v, want %v",
 			circuit2, nil)
 	}
+}
+
+// TestCircuitMapCleanClosedChannels checks that the circuits and keystones are
+// deleted for closed channels upon restart.
+func TestCircuitMapCleanClosedChannels(t *testing.T) {
+	t.Parallel()
+
+	var (
+		inKey0 = htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(uint64(0)),
+			HtlcID: 0,
+		}
+		inKey1 = htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(uint64(1)),
+			HtlcID: 0,
+		}
+		outKey1 = htlcswitch.CircuitKey{
+			ChanID: lnwire.NewShortChanIDFromInt(uint64(3)),
+			HtlcID: 0,
+		}
+	)
+
+	type closeChannelParams struct {
+		chanID    lnwire.ShortChannelID
+		isPending bool
+	}
+
+	testParams := []struct {
+		name string
+
+		// keystones is used to create and open circuits. A keystone is
+		// a pair of circuit keys, inKey and outKey, with the outKey
+		// optionally being empty. If a keystone with an outKey is used,
+		// a circuit will be created and opened, thus creating a circuit
+		// and a Keystone in the DB. Otherwise, only the circuit is
+		// created.
+		keystones []htlcswitch.Keystone
+
+		chanParams []closeChannelParams
+		deleted    []htlcswitch.Keystone
+		untouched  []htlcswitch.Keystone
+	}{
+		{
+			name: "no deletion if there are no closed channels",
+			keystones: []htlcswitch.Keystone{
+				// creates a circuit and a keystone
+				{InKey: inKey1, OutKey: outKey1},
+			},
+			untouched: []htlcswitch.Keystone{
+				{InKey: inKey1, OutKey: outKey1},
+			},
+		},
+		{
+			name: "delete half circuits for closed channels",
+			chanParams: []closeChannelParams{
+				{chanID: inKey1.ChanID, isPending: false},
+			},
+			keystones: []htlcswitch.Keystone{
+				// creates a circuit, no keystone created
+				{InKey: inKey1},
+			},
+			deleted: []htlcswitch.Keystone{
+				{InKey: inKey1},
+			},
+		},
+		{
+			name: "delete open circuits for closed channels",
+			chanParams: []closeChannelParams{
+				{chanID: inKey1.ChanID, isPending: false},
+			},
+			keystones: []htlcswitch.Keystone{
+				// creates a circuit and a keystone
+				{InKey: inKey1, OutKey: outKey1},
+			},
+			deleted: []htlcswitch.Keystone{
+				{InKey: inKey1, OutKey: outKey1},
+			},
+		},
+		{
+			name: "no deletion for locally initialized payment",
+			chanParams: []closeChannelParams{
+				{chanID: inKey0.ChanID, isPending: false},
+			},
+			keystones: []htlcswitch.Keystone{
+				// creates a circuit, no keystone created
+				{InKey: inKey0},
+			},
+			untouched: []htlcswitch.Keystone{
+				{InKey: inKey0},
+			},
+		},
+		{
+			name: "no deletion for pending close channel",
+			chanParams: []closeChannelParams{
+				{chanID: inKey1.ChanID, isPending: true},
+			},
+			keystones: []htlcswitch.Keystone{
+				// creates a circuit, no keystone created
+				{InKey: inKey1},
+			},
+			untouched: []htlcswitch.Keystone{
+				{InKey: inKey1},
+			},
+		},
+	}
+
+	for _, tt := range testParams {
+		test := tt
+
+		t.Run(test.name, func(t *testing.T) {
+			cfg, circuitMap := newCircuitMap(t)
+
+			// create test circuits
+			for _, ks := range test.keystones {
+				err := createTestCircuit(ks, circuitMap)
+				require.NoError(
+					t, err,
+					"failed to create test circuit",
+				)
+			}
+
+			// create close channels
+			err := kvdb.Update(cfg.DB, func(tx kvdb.RwTx) error {
+				for _, channel := range test.chanParams {
+					if err := createTestCloseChannelSummery(
+						tx, channel.isPending,
+						channel.chanID,
+					); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			require.NoError(
+				t, err,
+				"failed to create close channel summery",
+			)
+
+			// Now, restart the circuit map, and check that the
+			// circuits and keystones of closed channels are
+			// deleted in DB.
+			_, circuitMap = restartCircuitMap(t, cfg)
+
+			// Check that items are deleted. LookupCircuit and
+			// LookupOpenCircuit will check the cached circuits,
+			// which are loaded on restart from the DB.
+			for _, ks := range test.deleted {
+				assertKeystoneDeleted(t, circuitMap, ks)
+			}
+
+			// We also check we are not deleting wanted circuits.
+			for _, ks := range test.untouched {
+				assertKeystoneNotDeleted(t, circuitMap, ks)
+			}
+
+		})
+	}
+
+}
+
+// createTestCircuit creates a circuit for testing with its incoming key being
+// the keystone's InKey. If the keystone has an OutKey, the circuit will be
+// opened, which causes a Keystone to be created in DB.
+func createTestCircuit(ks htlcswitch.Keystone, cm htlcswitch.CircuitMap) error {
+	circuit := &htlcswitch.PaymentCircuit{
+		Incoming:       ks.InKey,
+		ErrorEncrypter: testExtracter,
+	}
+
+	// First we will try to add an new circuit to the circuit map, this
+	// should succeed.
+	_, err := cm.CommitCircuits(circuit)
+	if err != nil {
+		return fmt.Errorf("failed to commit circuits: %v", err)
+	}
+
+	// If the keystone has no outgoing key, we won't open it.
+	if ks.OutKey.ChanID.ToUint64() == 0 {
+		return nil
+	}
+
+	// Open the circuit, implicitly creates a keystone on disk.
+	err = cm.OpenCircuits(ks)
+	if err != nil {
+		return fmt.Errorf("failed to open circuits: %v", err)
+	}
+
+	return nil
+}
+
+// assertKeystoneDeleted checks that a given keystone is deleted from the
+// circuit map.
+func assertKeystoneDeleted(t *testing.T,
+	cm htlcswitch.CircuitMap, ks htlcswitch.Keystone) {
+
+	c := cm.LookupCircuit(ks.InKey)
+	require.Nil(t, c, "no circuit should be found using InKey")
+
+	if ks.OutKey.ChanID.ToUint64() != 0 {
+		c = cm.LookupOpenCircuit(ks.OutKey)
+		require.Nil(t, c, "no circuit should be found using OutKey")
+	}
+}
+
+// assertKeystoneDeleted checks that a given keystone is not deleted from the
+// circuit map.
+func assertKeystoneNotDeleted(t *testing.T,
+	cm htlcswitch.CircuitMap, ks htlcswitch.Keystone) {
+
+	c := cm.LookupCircuit(ks.InKey)
+	require.NotNil(t, c, "expecting circuit found using InKey")
+
+	if ks.OutKey.ChanID.ToUint64() != 0 {
+		c = cm.LookupOpenCircuit(ks.OutKey)
+		require.NotNil(t, c, "expecting circuit found using OutKey")
+	}
+}
+
+// createTestCloseChannelSummery creates a CloseChannelSummery for testing.
+func createTestCloseChannelSummery(tx kvdb.RwTx, isPending bool,
+	chanID lnwire.ShortChannelID) error {
+
+	closedChanBucket, err := tx.CreateTopLevelBucket(closedChannelBucket)
+	if err != nil {
+		return err
+	}
+	outputPoint := wire.OutPoint{Hash: hash1, Index: rand.Uint32()}
+
+	ccs := &channeldb.ChannelCloseSummary{
+		ChanPoint:      outputPoint,
+		ShortChanID:    chanID,
+		ChainHash:      hash1,
+		ClosingTXID:    hash2,
+		CloseHeight:    100,
+		RemotePub:      testEphemeralKey,
+		Capacity:       btcutil.Amount(10000),
+		SettledBalance: btcutil.Amount(50000),
+		CloseType:      channeldb.RemoteForceClose,
+		IsPending:      isPending,
+	}
+	var b bytes.Buffer
+	if err := serializeChannelCloseSummary(&b, ccs); err != nil {
+		return err
+	}
+
+	var chanPointBuf bytes.Buffer
+	if err := writeOutpoint(&chanPointBuf, &outputPoint); err != nil {
+		return err
+	}
+
+	return closedChanBucket.Put(chanPointBuf.Bytes(), b.Bytes())
+}
+
+func serializeChannelCloseSummary(
+	w io.Writer,
+	cs *channeldb.ChannelCloseSummary) error {
+
+	err := channeldb.WriteElements(
+		w,
+		cs.ChanPoint, cs.ShortChanID, cs.ChainHash, cs.ClosingTXID,
+		cs.CloseHeight, cs.RemotePub, cs.Capacity, cs.SettledBalance,
+		cs.TimeLockedBalance, cs.CloseType, cs.IsPending,
+	)
+	if err != nil {
+		return err
+	}
+
+	// If this is a close channel summary created before the addition of
+	// the new fields, then we can exit here.
+	if cs.RemoteCurrentRevocation == nil {
+		return channeldb.WriteElements(w, false)
+	}
+
+	return nil
+}
+
+// writeOutpoint writes an outpoint to the passed writer using the minimal
+// amount of bytes possible.
+func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
+	if _, err := w.Write(o.Hash[:]); err != nil {
+		return err
+	}
+	if err := binary.Write(w, binary.BigEndian, o.Index); err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
+	"github.com/lightningnetwork/lnd/channeldb/migration18"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -163,6 +164,11 @@ var (
 			// information about channel closes.
 			number:    17,
 			migration: mig.CreateTLB(closeSummaryBucket),
+		},
+		{
+			// Remove old forwarding packages of closed channels.
+			number:    18,
+			migration: migration18.MigrateFwdPkgCleanup,
 		},
 	}
 
