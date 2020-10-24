@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -49,8 +50,14 @@ type WalletInitMsg struct {
 	Passphrase []byte
 
 	// WalletSeed is the deciphered cipher seed that the wallet should use
-	// to initialize itself.
+	// to initialize itself. The seed might be nil if the wallet should be
+	// created from an extended master root key instead.
 	WalletSeed *aezeed.CipherSeed
+
+	// WalletExtendedKey is the wallet's extended master root key that
+	// should be used instead of the seed, if non-nil. The extended key is
+	// mutually exclusive to the wallet seed, but one of both is always set.
+	WalletExtendedKey *hdkeychain.ExtendedKey
 
 	// RecoveryWindow is the address look-ahead used when restoring a seed
 	// with existing funds. A recovery window zero indicates that no
@@ -321,27 +328,86 @@ func (u *UnlockerService) InitWallet(ctx context.Context,
 		return nil, fmt.Errorf("wallet already exists")
 	}
 
-	// At this point, we know that the wallet doesn't already exist. So
-	// we'll map the user provided aezeed and passphrase into a decoded
-	// cipher seed instance.
-	var mnemonic aezeed.Mnemonic
-	copy(mnemonic[:], in.CipherSeedMnemonic[:])
-
-	// If we're unable to map it back into the ciphertext, then either the
-	// mnemonic is wrong, or the passphrase is wrong.
-	cipherSeed, err := mnemonic.ToCipherSeed(in.AezeedPassphrase)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the cipher seed deciphered, and the auth service created, we'll
-	// now send over the wallet password and the seed. This will allow the
-	// daemon to initialize itself and startup.
+	// At this point, we know the wallet doesn't already exist so we can
+	// prepare the message that we'll send over the channel later.
 	initMsg := &WalletInitMsg{
 		Passphrase:     password,
-		WalletSeed:     cipherSeed,
 		RecoveryWindow: uint32(recoveryWindow),
 		StatelessInit:  in.StatelessInit,
+	}
+
+	// There are two supported ways to initialize the wallet. Either from
+	// the aezeed or the final extended master key directly.
+	switch {
+	// Don't allow the user to specify both as that would be ambiguous.
+	case len(in.CipherSeedMnemonic) > 0 && len(in.ExtendedMasterKey) > 0:
+		return nil, fmt.Errorf("cannot specify both the cipher " +
+			"seed mnemonic and the extended master key")
+
+	// The aezeed is the preferred and default way of initializing a wallet.
+	case len(in.CipherSeedMnemonic) > 0:
+		// We'll map the user provided aezeed and passphrase into a
+		// decoded cipher seed instance.
+		var mnemonic aezeed.Mnemonic
+		copy(mnemonic[:], in.CipherSeedMnemonic)
+
+		// If we're unable to map it back into the ciphertext, then
+		// either the mnemonic is wrong, or the passphrase is wrong.
+		cipherSeed, err := mnemonic.ToCipherSeed(in.AezeedPassphrase)
+		if err != nil {
+			return nil, err
+		}
+
+		initMsg.WalletSeed = cipherSeed
+
+	// To support restoring a wallet where the seed isn't known or a wallet
+	// created externally to lnd, we also allow the extended master key
+	// (xprv) to be imported directly. This is what'll be stored in the
+	// btcwallet database anyway.
+	case len(in.ExtendedMasterKey) > 0:
+		extendedKey, err := hdkeychain.NewKeyFromString(
+			in.ExtendedMasterKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// The on-chain wallet of lnd is going to derive keys based on
+		// the BIP49/84 key derivation paths from this root key. To make
+		// sure we use default derivation paths, we want to avoid
+		// deriving keys from something other than the master key (at
+		// depth 0, denoted with "m/" in BIP32 notation).
+		if extendedKey.Depth() != 0 {
+			return nil, fmt.Errorf("extended master key must " +
+				"be at depth 0 not a child key")
+		}
+
+		// Because we need the master key (at depth 0), it must be an
+		// extended private key as the first levels of BIP49/84
+		// derivation paths are hardened, which isn't possible with
+		// extended public keys.
+		if !extendedKey.IsPrivate() {
+			return nil, fmt.Errorf("extended master key must " +
+				"contain private keys")
+		}
+
+		// To avoid using the wrong master key, we check that it was
+		// issued for the correct network. This will cause problems if
+		// someone tries to import a "new" BIP84 zprv key because with
+		// this we only support the "legacy" zprv prefix. But it is
+		// trivial to convert between those formats, as long as the user
+		// knows what they're doing.
+		if !extendedKey.IsForNet(u.netParams) {
+			return nil, fmt.Errorf("extended master key must be "+
+				"for network %s", u.netParams.Name)
+		}
+
+		initMsg.WalletExtendedKey = extendedKey
+
+	// No key material was set, no wallet can be created.
+	default:
+		return nil, fmt.Errorf("must either specify cipher seed " +
+			"mnemonic or the extended master key")
 	}
 
 	// Before we return the unlock payload, we'll check if we can extract
