@@ -34,7 +34,8 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow, nil,
+			"Carol", nil, password, mnemonic, "", recoveryWindow,
+			nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to restore node: %v", err)
@@ -140,7 +141,8 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
 		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, recoveryWindow, nil,
+			"Carol", nil, password, mnemonic, "", recoveryWindow,
+			nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to restore node: %v", err)

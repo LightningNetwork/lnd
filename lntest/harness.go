@@ -338,7 +338,7 @@ func (n *NetworkHarness) NewNodeWithSeed(name string, extraArgs []string,
 // will finish initializing the LightningClient such that the HarnessNode can
 // be used for regular rpc operations.
 func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
-	password []byte, mnemonic []string, recoveryWindow int32,
+	password []byte, mnemonic []string, rootKey string, recoveryWindow int32,
 	chanBackups *lnrpc.ChanBackupSnapshot) (*HarnessNode, error) {
 
 	node, err := n.newNode(name, extraArgs, true, password)
@@ -350,6 +350,7 @@ func (n *NetworkHarness) RestoreNodeWithSeed(name string, extraArgs []string,
 		WalletPassword:     password,
 		CipherSeedMnemonic: mnemonic,
 		AezeedPassphrase:   password,
+		ExtendedMasterKey:  rootKey,
 		RecoveryWindow:     recoveryWindow,
 		ChannelBackups:     chanBackups,
 	}
