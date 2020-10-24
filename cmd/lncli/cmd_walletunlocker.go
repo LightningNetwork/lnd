@@ -289,36 +289,9 @@ mnemonicCheck:
 			return err
 		}
 
-		for {
-			fmt.Println()
-			fmt.Printf("Input an optional address look-ahead "+
-				"used to scan for used keys (default %d): ",
-				defaultRecoveryWindow)
-
-			reader := bufio.NewReader(os.Stdin)
-			answer, err := reader.ReadString('\n')
-			if err != nil {
-				return err
-			}
-
-			fmt.Println()
-
-			answer = strings.TrimSpace(answer)
-
-			if len(answer) == 0 {
-				recoveryWindow = defaultRecoveryWindow
-				break
-			}
-
-			lookAhead, err := strconv.Atoi(answer)
-			if err != nil {
-				fmt.Printf("Unable to parse recovery "+
-					"window: %v\n", err)
-				continue
-			}
-
-			recoveryWindow = int32(lookAhead)
-			break
+		recoveryWindow, err = askRecoveryWindow()
+		if err != nil {
+			return err
 		}
 	} else {
 		// Otherwise, if the user doesn't have a mnemonic that they
@@ -663,4 +636,34 @@ func storeOrPrintAdminMac(ctx *cli.Context, adminMac []byte) error {
 	// it to standard output.
 	fmt.Printf("Admin macaroon: %s\n", hex.EncodeToString(adminMac))
 	return nil
+}
+
+func askRecoveryWindow() (int32, error) {
+	for {
+		fmt.Println()
+		fmt.Printf("Input an optional address look-ahead used to scan "+
+			"for used keys (default %d): ", defaultRecoveryWindow)
+
+		reader := bufio.NewReader(os.Stdin)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return 0, err
+		}
+
+		fmt.Println()
+
+		answer = strings.TrimSpace(answer)
+
+		if len(answer) == 0 {
+			return defaultRecoveryWindow, nil
+		}
+
+		lookAhead, err := strconv.Atoi(answer)
+		if err != nil {
+			fmt.Printf("Unable to parse recovery window: %v\n", err)
+			continue
+		}
+
+		return int32(lookAhead), nil
+	}
 }
