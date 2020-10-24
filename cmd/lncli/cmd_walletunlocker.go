@@ -326,26 +326,7 @@ mnemonicCheck:
 
 	// Before we initialize the wallet, we'll display the cipher seed to
 	// the user so they can write it down.
-	mnemonicWords := cipherSeedMnemonic
-
-	fmt.Println("!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
-		"RESTORE THE WALLET!!!")
-	fmt.Println()
-
-	fmt.Println("---------------BEGIN LND CIPHER SEED---------------")
-
-	numCols := 4
-	colWords := monowidthColumns(mnemonicWords, numCols)
-	for i := 0; i < len(colWords); i += numCols {
-		fmt.Printf("%2d. %3s  %2d. %3s  %2d. %3s  %2d. %3s\n",
-			i+1, colWords[i], i+2, colWords[i+1], i+3,
-			colWords[i+2], i+4, colWords[i+3])
-	}
-
-	fmt.Println("---------------END LND CIPHER SEED-----------------")
-
-	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
-		"RESTORE THE WALLET!!!")
+	printCipherSeedWords(cipherSeedMnemonic)
 
 	// With either the user's prior cipher seed, or a newly generated one,
 	// we'll go ahead and initialize the wallet.
@@ -666,4 +647,25 @@ func askRecoveryWindow() (int32, error) {
 
 		return int32(lookAhead), nil
 	}
+}
+
+func printCipherSeedWords(mnemonicWords []string) {
+	fmt.Println("!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
+		"RESTORE THE WALLET!!!")
+	fmt.Println()
+
+	fmt.Println("---------------BEGIN LND CIPHER SEED---------------")
+
+	numCols := 4
+	colWords := monowidthColumns(mnemonicWords, numCols)
+	for i := 0; i < len(colWords); i += numCols {
+		fmt.Printf("%2d. %3s  %2d. %3s  %2d. %3s  %2d. %3s\n",
+			i+1, colWords[i], i+2, colWords[i+1], i+3,
+			colWords[i+2], i+4, colWords[i+3])
+	}
+
+	fmt.Println("---------------END LND CIPHER SEED-----------------")
+
+	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
+		"RESTORE THE WALLET!!!")
 }
