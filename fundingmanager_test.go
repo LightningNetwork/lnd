@@ -394,7 +394,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		DefaultMinHtlcIn: 5,
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
-			pushAmt lnwire.MilliSatoshi) uint16 {
+			pushAmt lnwire.MilliSatoshi, allowZeroConfs bool) uint16 {
 			return 3
 		},
 		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {

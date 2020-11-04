@@ -2112,10 +2112,10 @@ func (s *Switch) UpdateShortChanID(chanID lnwire.ChannelID) error {
 	s.indexMtx.Lock()
 	defer s.indexMtx.Unlock()
 
-	// Locate the target link in the pending link index. If no such link
-	// exists, then we will ignore the request.
-	link, ok := s.pendingLinkIndex[chanID]
-	if !ok {
+	// Locate the target link to update. If no such link exists, then we will
+	// ignore the request.
+	link, err := s.getLink(chanID)
+	if err != nil {
 		return fmt.Errorf("link %v not found", chanID)
 	}
 

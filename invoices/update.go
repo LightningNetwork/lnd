@@ -136,9 +136,10 @@ func updateMpp(ctx *invoiceUpdateCtx,
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
+	hodlInvoice := inv.HodlInvoice || ctx.circuitKey.ChanID.IsFake()
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
-	for _, htlc := range inv.Htlcs {
+	for circuitKey, htlc := range inv.Htlcs {
 		// Only consider accepted mpp htlcs. It is possible that there
 		// are htlcs registered in the invoice database that previously
 		// timed out and are in the canceled state now.
@@ -150,6 +151,9 @@ func updateMpp(ctx *invoiceUpdateCtx,
 			return nil, ctx.failRes(ResultHtlcSetTotalMismatch), nil
 		}
 
+		if circuitKey.ChanID.IsFake() {
+			hodlInvoice = true
+		}
 		newSetTotal += htlc.Amt
 	}
 
@@ -187,7 +191,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 
 	// Check to see if we can settle or this is an hold invoice and
 	// we need to wait for the preimage.
-	if inv.HodlInvoice {
+	if hodlInvoice {
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
@@ -274,7 +278,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 
 	// Check to see if we can settle or this is an hold invoice and we need
 	// to wait for the preimage.
-	if inv.HodlInvoice {
+	if inv.HodlInvoice || ctx.circuitKey.ChanID.IsFake() {
 		update.State = &channeldb.InvoiceStateUpdateDesc{
 			NewState: channeldb.ContractAccepted,
 		}
