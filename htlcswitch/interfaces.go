@@ -248,14 +248,14 @@ type InterceptedForward interface {
 	// Resume notifies the intention to resume an existing hold forward. This
 	// basically means the caller wants to resume with the default behavior for
 	// this htlc which usually means forward it.
-	Resume() error
+	Resume(lnwire.MilliSatoshi, lnwire.ShortChannelID, [lnwire.OnionPacketSize]byte) error
 
 	// Settle notifies the intention to settle an existing hold
 	// forward with a given preimage.
 	Settle(lntypes.Preimage) error
 
 	// Fails notifies the intention to fail an existing hold forward
-	Fail() error
+	Fail(lnwire.FailureMessage) error
 }
 
 // htlcNotifier is an interface which represents the input side of the

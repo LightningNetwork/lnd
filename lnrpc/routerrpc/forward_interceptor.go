@@ -187,9 +187,18 @@ func (r *forwardInterceptor) resolveFromClient(
 
 	switch in.Action {
 	case ResolveHoldForwardAction_RESUME:
-		return interceptedForward.Resume()
+		var onionBlob [lnwire.OnionPacketSize]byte
+		copy(onionBlob[:], in.OnionBlob)
+		return interceptedForward.Resume(lnwire.MilliSatoshi(in.OutgoingAmountMsat), lnwire.NewShortChanIDFromInt(in.OutgoingRequestedChanId), onionBlob)
 	case ResolveHoldForwardAction_FAIL:
-		return interceptedForward.Fail()
+		var failureMessage lnwire.FailureMessage
+		switch in.FailureCode {
+		case ForwardHtlcInterceptResponse_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS:
+			failureMessage = &lnwire.FailIncorrectDetails{}
+		default:
+			failureMessage = lnwire.NewTemporaryChannelFailure(nil)
+		}
+		return interceptedForward.Fail(failureMessage)
 	case ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
 			return ErrMissingPreimage
@@ -213,7 +222,7 @@ func (r *forwardInterceptor) onDisconnect() {
 
 	log.Infof("RPC interceptor disconnected, resolving held packets")
 	for key, forward := range r.holdForwards {
-		if err := forward.Resume(); err != nil {
+		if err := forward.Resume(forward.Packet().OutgoingAmount, forward.Packet().OutgoingChanID, forward.Packet().OnionBlob); err != nil {
 			log.Errorf("failed to resume hold forward %v", err)
 		}
 		delete(r.holdForwards, key)

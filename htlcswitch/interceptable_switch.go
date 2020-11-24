@@ -133,13 +133,18 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 }
 
 // Resume resumes the default behavior as if the packet was not intercepted.
-func (f *interceptedForward) Resume() error {
+func (f *interceptedForward) Resume(outgoingAmount lnwire.MilliSatoshi, outgoingChanID lnwire.ShortChannelID, onionBlob [lnwire.OnionPacketSize]byte) error {
+	f.htlc.OnionBlob = onionBlob
+	f.htlc.Amount = outgoingAmount
+	f.packet.htlc = f.htlc
+	f.packet.amount = outgoingAmount
+	f.packet.outgoingChanID = outgoingChanID
 	return f.htlcSwitch.ForwardPackets(f.linkQuit, f.packet)
 }
 
 // Fail forward a failed packet to the switch.
-func (f *interceptedForward) Fail() error {
-	reason, err := f.packet.obfuscator.EncryptFirstHop(lnwire.NewTemporaryChannelFailure(nil))
+func (f *interceptedForward) Fail(failureMessage lnwire.FailureMessage) error {
+	reason, err := f.packet.obfuscator.EncryptFirstHop(failureMessage)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt failure reason %v", err)
 	}

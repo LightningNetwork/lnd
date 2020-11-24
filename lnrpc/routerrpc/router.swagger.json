@@ -341,40 +341,6 @@
     }
   },
   "definitions": {
-    "FailureFailureCode": {
-      "type": "string",
-      "enum": [
-        "RESERVED",
-        "INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS",
-        "INCORRECT_PAYMENT_AMOUNT",
-        "FINAL_INCORRECT_CLTV_EXPIRY",
-        "FINAL_INCORRECT_HTLC_AMOUNT",
-        "FINAL_EXPIRY_TOO_SOON",
-        "INVALID_REALM",
-        "EXPIRY_TOO_SOON",
-        "INVALID_ONION_VERSION",
-        "INVALID_ONION_HMAC",
-        "INVALID_ONION_KEY",
-        "AMOUNT_BELOW_MINIMUM",
-        "FEE_INSUFFICIENT",
-        "INCORRECT_CLTV_EXPIRY",
-        "CHANNEL_DISABLED",
-        "TEMPORARY_CHANNEL_FAILURE",
-        "REQUIRED_NODE_FEATURE_MISSING",
-        "REQUIRED_CHANNEL_FEATURE_MISSING",
-        "UNKNOWN_NEXT_PEER",
-        "TEMPORARY_NODE_FAILURE",
-        "PERMANENT_NODE_FAILURE",
-        "PERMANENT_CHANNEL_FAILURE",
-        "EXPIRY_TOO_FAR",
-        "MPP_TIMEOUT",
-        "INTERNAL_FAILURE",
-        "UNKNOWN_FAILURE",
-        "UNREADABLE_FAILURE"
-      ],
-      "default": "RESERVED",
-      "description": " - RESERVED: The numbers assigned in this enumeration match the failure codes as\ndefined in BOLT #4. Because protobuf 3 requires enums to start with 0,\na RESERVED value is added.\n - INTERNAL_FAILURE: An internal error occurred.\n - UNKNOWN_FAILURE: The error source is known, but the failure itself couldn't be decoded.\n - UNREADABLE_FAILURE: An unreadable failure result is returned if the received failure message\ncannot be decrypted. In that case the error source is unknown."
-    },
     "HTLCAttemptHTLCStatus": {
       "type": "string",
       "enum": [
@@ -453,7 +419,7 @@
       "type": "object",
       "properties": {
         "code": {
-          "$ref": "#/definitions/FailureFailureCode",
+          "$ref": "#/definitions/lnrpcFailureFailureCode",
           "title": "Failure code as defined in the Lightning spec"
         },
         "channel_update": {
@@ -491,6 +457,40 @@
           "description": "A failure type-dependent block height."
         }
       }
+    },
+    "lnrpcFailureFailureCode": {
+      "type": "string",
+      "enum": [
+        "RESERVED",
+        "INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS",
+        "INCORRECT_PAYMENT_AMOUNT",
+        "FINAL_INCORRECT_CLTV_EXPIRY",
+        "FINAL_INCORRECT_HTLC_AMOUNT",
+        "FINAL_EXPIRY_TOO_SOON",
+        "INVALID_REALM",
+        "EXPIRY_TOO_SOON",
+        "INVALID_ONION_VERSION",
+        "INVALID_ONION_HMAC",
+        "INVALID_ONION_KEY",
+        "AMOUNT_BELOW_MINIMUM",
+        "FEE_INSUFFICIENT",
+        "INCORRECT_CLTV_EXPIRY",
+        "CHANNEL_DISABLED",
+        "TEMPORARY_CHANNEL_FAILURE",
+        "REQUIRED_NODE_FEATURE_MISSING",
+        "REQUIRED_CHANNEL_FEATURE_MISSING",
+        "UNKNOWN_NEXT_PEER",
+        "TEMPORARY_NODE_FAILURE",
+        "PERMANENT_NODE_FAILURE",
+        "PERMANENT_CHANNEL_FAILURE",
+        "EXPIRY_TOO_FAR",
+        "MPP_TIMEOUT",
+        "INTERNAL_FAILURE",
+        "UNKNOWN_FAILURE",
+        "UNREADABLE_FAILURE"
+      ],
+      "default": "RESERVED",
+      "description": " - RESERVED: The numbers assigned in this enumeration match the failure codes as\ndefined in BOLT #4. Because protobuf 3 requires enums to start with 0,\na RESERVED value is added.\n - INTERNAL_FAILURE: An internal error occurred.\n - UNKNOWN_FAILURE: The error source is known, but the failure itself couldn't be decoded.\n - UNREADABLE_FAILURE: An unreadable failure result is returned if the received failure message\ncannot be decrypted. In that case the error source is unknown."
     },
     "lnrpcFeatureBit": {
       "type": "string",
@@ -952,6 +952,15 @@
         }
       }
     },
+    "routerrpcForwardHtlcInterceptResponseFailureCode": {
+      "type": "string",
+      "enum": [
+        "RESERVED",
+        "INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS",
+        "TEMPORARY_CHANNEL_FAILURE"
+      ],
+      "default": "RESERVED"
+    },
     "routerrpcHtlcEvent": {
       "type": "object",
       "properties": {
@@ -1042,7 +1051,7 @@
           "description": "Info contains details about the htlc that we failed."
         },
         "wire_failure": {
-          "$ref": "#/definitions/FailureFailureCode",
+          "$ref": "#/definitions/lnrpcFailureFailureCode",
           "description": "FailureCode is the BOLT error code for the failure."
         },
         "failure_detail": {

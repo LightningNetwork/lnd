@@ -655,6 +655,26 @@ message ForwardHtlcInterceptResponse {
 
     // The preimage in case the resolve action is Settle.
     bytes preimage = 3;
+
+    // The outgoing htlc amount.
+    uint64 outgoing_amount_msat = 4;
+
+    // The requested outgoing channel id for this forwarded htlc. Because of
+    // non-strict forwarding, this isn't necessarily the channel over which the
+    // packet will be forwarded eventually. A different channel to the same peer
+    // may be selected as well.
+    uint64 outgoing_requested_chan_id = 5;
+
+    // The onion blob for the next hop.
+    bytes onion_blob = 6;
+
+    enum FailureCode {
+        RESERVED = 0;
+
+        INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS = 1;
+        TEMPORARY_CHANNEL_FAILURE = 15;
+    }
+    FailureCode failure_code = 7;
 }
 
 enum ResolveHoldForwardAction {

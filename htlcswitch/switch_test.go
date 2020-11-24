@@ -3130,11 +3130,11 @@ func (m *mockForwardInterceptor) settle(preimage lntypes.Preimage) error {
 }
 
 func (m *mockForwardInterceptor) fail() error {
-	return m.intercepted.Fail()
+	return m.intercepted.Fail(lnwire.NewTemporaryChannelFailure(nil))
 }
 
 func (m *mockForwardInterceptor) resume() error {
-	return m.intercepted.Resume()
+	return m.intercepted.Resume(m.intercepted.Packet().OutgoingAmount, m.intercepted.Packet().OutgoingChanID, m.intercepted.Packet().OnionBlob)
 }
 
 func assertNumCircuits(t *testing.T, s *Switch, pending, opened int) {
