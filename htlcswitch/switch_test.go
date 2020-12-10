@@ -2294,6 +2294,7 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	// We'll make now 10 payments, of 100k satoshis each from Alice to
 	// Carol via Bob.
 	const numPayments = 10
+	paymentHashes := make(map[lntypes.Hash]bool)
 	finalAmt := lnwire.NewMSatFromSatoshis(100000)
 	htlcAmt, totalTimelock, hops := generateHops(
 		finalAmt, testStartingHeight, n.firstBobChannelLink,
@@ -2301,13 +2302,14 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 	)
 	firstHop := n.firstBobChannelLink.ShortChanID()
 	for i := 0; i < numPayments/2; i++ {
-		_, err := makePayment(
+		paymentHash, err := makePayment(
 			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
 			htlcAmt, totalTimelock,
 		).Wait(30 * time.Second)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
+		paymentHashes[paymentHash] = true
 	}
 
 	bobLog, ok := n.bobServer.htlcSwitch.cfg.FwdingLog.(*mockForwardingLog)
@@ -2354,13 +2356,14 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 
 	// Send the remaining payments.
 	for i := numPayments / 2; i < numPayments; i++ {
-		_, err := makePayment(
+		paymentHash, err := makePayment(
 			n.aliceServer, n.carolServer, firstHop, hops, finalAmt,
 			htlcAmt, totalTimelock,
 		).Wait(30 * time.Second)
 		if err != nil {
 			t.Fatalf("unable to send payment: %v", err)
 		}
+		paymentHashes[paymentHash] = true
 	}
 
 	// With all 10 payments sent. We'll now manually stop each of the
@@ -2424,6 +2427,15 @@ func TestMultiHopPaymentForwardingEvents(t *testing.T) {
 			t.Fatalf("outgoing amt mismatch: expected %v, got %v",
 				event.AmtOut, finalAmt)
 		}
+
+		// Finally, the payment hash should be matched. After the match
+		// check, payment hash is deleted in case a duplicate payment
+		// hash value causes a false positive.
+		if found := paymentHashes[event.PaymentHash]; !found {
+			t.Fatalf("paymentHash not found: got %v",
+				event.PaymentHash)
+		}
+		delete(paymentHashes, event.PaymentHash)
 	}
 }
 

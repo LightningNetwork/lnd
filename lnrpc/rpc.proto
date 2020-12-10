@@ -2968,7 +2968,7 @@ message AddInvoiceResponse {
     invoices with an add_index greater than this one.
     */
     uint64 add_index = 16;
-    
+
     /*
     The payment address of the generated invoice. This value should be used
     in all payments for this invoice as we require it for end to end
@@ -3386,6 +3386,11 @@ message ForwardingEvent {
 
     // The incoming channel ID that carried the HTLC that created the circuit.
     uint64 chan_id_in = 2 [jstype = JS_STRING];
+
+    /*
+    The hash used within the payment's HTLC.
+    */
+    bytes payment_hash = 3;
 
     // The outgoing channel ID that carried the preimage that completed the
     // circuit.

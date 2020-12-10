@@ -1179,6 +1179,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 						OutgoingChanID: circuit.Outgoing.ChanID,
 						AmtIn:          circuit.IncomingAmount,
 						AmtOut:         circuit.OutgoingAmount,
+						PaymentHash:    circuit.PaymentHash,
 					},
 				)
 				s.fwdEventMtx.Unlock()

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
+	"github.com/lightningnetwork/lnd/channeldb/migration19"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -169,6 +170,11 @@ var (
 			// about our peers.
 			number:    18,
 			migration: mig.CreateTLB(peersBucket),
+		},
+		{
+			// Create a PaymentHash field in ForwardingEvent.
+			number:    19,
+			migration: migration19.MigrateForwardingEvents,
 		},
 	}
 

@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestForwardingLogBasicStorageAndQuery tests that we're able to store and
@@ -25,28 +27,17 @@ func TestForwardingLogBasicStorageAndQuery(t *testing.T) {
 	}
 	defer cleanUp()
 
-	log := ForwardingLog{
-		db: db,
-	}
+	log := db.ForwardingLog()
 
 	initialTime := time.Unix(1234, 0)
-	timestamp := time.Unix(1234, 0)
 
 	// We'll create 100 random events, which each event being spaced 10
 	// minutes after the prior event.
 	numEvents := 100
-	events := make([]ForwardingEvent, numEvents)
-	for i := 0; i < numEvents; i++ {
-		events[i] = ForwardingEvent{
-			Timestamp:      timestamp,
-			IncomingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
-			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
-		}
-
-		timestamp = timestamp.Add(time.Minute * 10)
-	}
+	events, endTime, err := makeRandomForwardingEvents(
+		numEvents, initialTime, time.Minute*10,
+	)
+	require.NoError(t, err, "failed to create random events")
 
 	// Now that all of our set of events constructed, we'll add them to the
 	// database in a batch manner.
@@ -58,7 +49,7 @@ func TestForwardingLogBasicStorageAndQuery(t *testing.T) {
 	// all of the events.
 	eventQuery := ForwardingEventQuery{
 		StartTime:    initialTime,
-		EndTime:      timestamp,
+		EndTime:      endTime,
 		IndexOffset:  0,
 		NumMaxEvents: 1000,
 	}
@@ -98,28 +89,17 @@ func TestForwardingLogQueryOptions(t *testing.T) {
 	}
 	defer cleanUp()
 
-	log := ForwardingLog{
-		db: db,
-	}
+	log := db.ForwardingLog()
 
 	initialTime := time.Unix(1234, 0)
-	endTime := time.Unix(1234, 0)
 
 	// We'll create 20 random events, which each event being spaced 10
 	// minutes after the prior event.
 	numEvents := 20
-	events := make([]ForwardingEvent, numEvents)
-	for i := 0; i < numEvents; i++ {
-		events[i] = ForwardingEvent{
-			Timestamp:      endTime,
-			IncomingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
-			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
-		}
-
-		endTime = endTime.Add(time.Minute * 10)
-	}
+	events, endTime, err := makeRandomForwardingEvents(
+		numEvents, initialTime, time.Minute*10,
+	)
+	require.NoError(t, err, "failed to create random events")
 
 	// Now that all of our set of events constructed, we'll add them to the
 	// database in a batch manner.
@@ -204,9 +184,7 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 	}
 	defer cleanUp()
 
-	log := ForwardingLog{
-		db: db,
-	}
+	log := db.ForwardingLog()
 
 	initialTime := time.Unix(1234, 0)
 	endTime := time.Unix(1234, 0)
@@ -214,18 +192,10 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 	// We'll create 200 random events, which each event being spaced 10
 	// minutes after the prior event.
 	numEvents := 200
-	events := make([]ForwardingEvent, numEvents)
-	for i := 0; i < numEvents; i++ {
-		events[i] = ForwardingEvent{
-			Timestamp:      endTime,
-			IncomingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
-			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
-		}
-
-		endTime = endTime.Add(time.Minute * 10)
-	}
+	events, endTime, err := makeRandomForwardingEvents(
+		numEvents, initialTime, time.Minute*10,
+	)
+	require.NoError(t, err, "failed to create random events")
 
 	// Now that all of our set of events constructed, we'll add them to the
 	// database in a batch manner.
@@ -320,24 +290,16 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 	}
 	defer cleanUp()
 
-	log := ForwardingLog{
-		db: db,
-	}
+	log := db.ForwardingLog()
 
 	// We'll create 20 random events, with each event having a timestamp
 	// with just one nanosecond apart.
 	numEvents := 20
-	events := make([]ForwardingEvent, numEvents)
-	ts := time.Now().UnixNano()
-	for i := 0; i < numEvents; i++ {
-		events[i] = ForwardingEvent{
-			Timestamp:      time.Unix(0, ts+int64(i)),
-			IncomingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
-			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
-			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
-		}
-	}
+	ts := time.Now()
+	events, _, err := makeRandomForwardingEvents(
+		numEvents, ts, time.Nanosecond*1,
+	)
+	require.NoError(t, err, "failed to create random events")
 
 	// Now that all of our events are constructed, we'll add them to the
 	// database in a batched manner.
@@ -356,8 +318,8 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 	// events with a range of just 40 nanoseconds (2 times 20 events, all
 	// spaced one nanosecond apart).
 	eventQuery := ForwardingEventQuery{
-		StartTime:    time.Unix(0, ts),
-		EndTime:      time.Unix(0, ts+int64(numEvents*2)),
+		StartTime:    ts,
+		EndTime:      ts.Add(time.Duration(numEvents * 2)),
 		IndexOffset:  0,
 		NumMaxEvents: uint32(numEvents * 3),
 	}
@@ -375,9 +337,47 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 	// The timestamps should be spaced out evenly and in order.
 	for i := 0; i < numEvents*2; i++ {
 		eventTs := timeSlice.ForwardingEvents[i].Timestamp.UnixNano()
-		if eventTs != ts+int64(i) {
-			t.Fatalf("unexpected timestamp of event %d: expected "+
-				"%d, got %d", i, ts+int64(i), eventTs)
+		if eventTs != ts.UnixNano()+int64(i) {
+			t.Fatalf(
+				"unexpected timestamp of event %d: expected "+
+					"%d, got %d", i,
+				ts.UnixNano()+int64(i), eventTs,
+			)
 		}
 	}
+}
+
+// makeRandomForwardingEvents creates the number of ForwardingEvents specified
+// by numEvents. With the first event using the timestamp passed, each of the
+// following events is spaced with a time duration, as specified by gap, after
+// the prior event.
+func makeRandomForwardingEvents(numEvents int, timestamp time.Time,
+	gap time.Duration) ([]ForwardingEvent, time.Time, error) {
+
+	events := make([]ForwardingEvent, numEvents)
+	for i := 0; i < numEvents; i++ {
+		var paymentHash [32]byte
+		if _, err := rand.Read(paymentHash[:]); err != nil {
+			return nil, timestamp, fmt.Errorf(
+				"failed to read random bytes",
+			)
+		}
+
+		events[i] = ForwardingEvent{
+			Timestamp: timestamp,
+			IncomingChanID: lnwire.NewShortChanIDFromInt(
+				uint64(rand.Int63()),
+			),
+			OutgoingChanID: lnwire.NewShortChanIDFromInt(
+				uint64(rand.Int63()),
+			),
+			AmtIn:       lnwire.MilliSatoshi(rand.Int63()),
+			AmtOut:      lnwire.MilliSatoshi(rand.Int63()),
+			PaymentHash: paymentHash,
+		}
+
+		timestamp = timestamp.Add(gap)
+	}
+
+	return events, timestamp, nil
 }
