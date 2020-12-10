@@ -48,6 +48,7 @@ func walletCommands() []cli.Command {
 				labelTxCommand,
 				releaseOutputCommand,
 				psbtCommand,
+				listWalletAddrsCmd,
 			},
 		},
 	}
@@ -749,6 +750,32 @@ func releaseOutput(ctx *cli.Context) error {
 	defer cleanUp()
 
 	response, err := walletClient.ReleaseOutput(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(response)
+
+	return nil
+}
+
+var listWalletAddrsCmd = cli.Command{
+	Name:  "listaddresses",
+	Usage: "Lists all addresses known to the wallet.",
+	Description: `
+	The listaddresses command returns all Pay-To-Witness-PubkeyHash
+	addresses known to be in use/have been used by the underlying wallet.
+	`,
+	Action: actionDecorator(listWalletAddrs),
+}
+
+func listWalletAddrs(ctx *cli.Context) error {
+	req := &walletrpc.AddrRequest{}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	response, err := walletClient.ListWalletAddresses(context.Background(), req)
 	if err != nil {
 		return err
 	}

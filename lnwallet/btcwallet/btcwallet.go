@@ -290,6 +290,39 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 	return result && (err == nil)
 }
 
+// ListWalletAddresses returns all addresses of addrType associated with the wallet.
+func (b *BtcWallet) ListWalletAddresses(addrType lnwallet.AddressType) ([]btcutil.Address, error) {
+	var (
+		keyScope        waddrmgr.KeyScope
+		walletAddresses []btcutil.Address
+	)
+
+	switch addrType {
+	case lnwallet.WitnessPubKey:
+		keyScope = waddrmgr.KeyScopeBIP0084
+	case lnwallet.NestedWitnessPubKey:
+		keyScope = waddrmgr.KeyScopeBIP0049Plus
+	default:
+		return nil, fmt.Errorf("unknown address type")
+	}
+
+	walletAccounts, err := b.wallet.Accounts(keyScope)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, account := range walletAccounts.Accounts {
+		accountAddresses, err := b.wallet.AccountAddresses(account.AccountNumber)
+		if err != nil {
+			return walletAddresses, err
+		}
+
+		walletAddresses = append(walletAddresses, accountAddresses...)
+	}
+
+	return walletAddresses, nil
+}
+
 // SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
 // the specified outputs. In the case the wallet has insufficient funds, or the
 // outputs are non-standard, a non-nil error will be returned.

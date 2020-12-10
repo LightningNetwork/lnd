@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1335,8 +1338,12 @@ func (n *NetworkHarness) sendCoins(ctx context.Context, amt btcutil.Amount,
 			return nil
 		}
 
-		req := &lnrpc.ListUnspentRequest{}
-		resp, err := target.ListUnspent(ctx, req)
+		req := &walletrpc.ListUnspentRequest{
+			MinConfs: 0,
+			MaxConfs: math.MaxInt32,
+		}
+
+		resp, err := target.WalletKitClient.ListUnspent(ctx, req)
 		if err != nil {
 			return err
 		}

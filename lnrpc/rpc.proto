@@ -2968,7 +2968,7 @@ message AddInvoiceResponse {
     invoices with an add_index greater than this one.
     */
     uint64 add_index = 16;
-    
+
     /*
     The payment address of the generated invoice. This value should be used
     in all payments for this invoice as we require it for end to end

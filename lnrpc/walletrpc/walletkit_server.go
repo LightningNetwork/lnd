@@ -76,6 +76,10 @@ var (
 			Entity: "address",
 			Action: "read",
 		}},
+		"/walletrpc.WalletKit/ListWalletAddresses": {{
+			Entity: "address",
+			Action: "read",
+		}},
 		"/walletrpc.WalletKit/PublishTransaction": {{
 			Entity: "onchain",
 			Action: "write",
@@ -442,6 +446,26 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 
 	return &AddrResponse{
 		Addr: addr.String(),
+	}, nil
+}
+
+// ListWalletAddresses returns a list of all addresses known to the underlying wallet.
+func (w *WalletKit) ListWalletAddresses(ctx context.Context,
+	req *AddrRequest) (*AddrsResponse, error) {
+
+	walletAddrs, err := w.cfg.Wallet.ListWalletAddresses(lnwallet.WitnessPubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	addrsSlice := make([]string, 0, len(walletAddrs))
+
+	for _, wa := range walletAddrs {
+		addrsSlice = append(addrsSlice, wa.String())
+	}
+
+	return &AddrsResponse{
+		Addrs: addrsSlice,
 	}, nil
 }
 

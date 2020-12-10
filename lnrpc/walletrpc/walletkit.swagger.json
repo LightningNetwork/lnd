@@ -11,6 +11,29 @@
     "application/json"
   ],
   "paths": {
+    "/v2/wallet/address/list": {
+      "get": {
+        "summary": "ListWalletAddresses returns all addresses in the underlying wallet.",
+        "operationId": "ListWalletAddresses",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcAddrsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/address/next": {
       "post": {
         "summary": "NextAddr returns the next unused address within the wallet.",
@@ -717,6 +740,18 @@
         "addr": {
           "type": "string",
           "description": "The address encoded using a bech32 format."
+        }
+      }
+    },
+    "walletrpcAddrsResponse": {
+      "type": "object",
+      "properties": {
+        "addrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Array of addresses encoded using a bech32 format."
         }
       }
     },

@@ -51,6 +51,11 @@ service WalletKit {
     rpc NextAddr (AddrRequest) returns (AddrResponse);
 
     /*
+    ListWalletAddresses returns all addresses in the underlying wallet.
+    */
+    rpc ListWalletAddresses (AddrRequest) returns (AddrsResponse);
+
+    /*
     PublishTransaction attempts to publish the passed transaction to the
     network. Once this returns without an error, the wallet will continually
     attempt to re-broadcast the transaction on start up, until it enters the
@@ -232,6 +237,13 @@ message AddrResponse {
     The address encoded using a bech32 format.
     */
     string addr = 1;
+}
+
+message AddrsResponse {
+    /*
+    Array of addresses encoded using a bech32 format.
+    */
+    repeated string addrs = 1;
 }
 
 message Transaction {

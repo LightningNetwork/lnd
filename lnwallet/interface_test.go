@@ -2533,6 +2533,95 @@ func testLastUnusedAddr(miner *rpctest.Harness,
 	}
 }
 
+func testListWalletAddresses(miner *rpctest.Harness,
+	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+
+	if _, err := miner.Node.Generate(1); err != nil {
+		require.NoError(t, err,
+			"unable to generate block",
+		)
+	}
+
+	// We'll repeat this test for each address type to ensure they're all
+	// rotated properly.
+	addrTypes := []lnwallet.AddressType{
+		lnwallet.WitnessPubKey, lnwallet.NestedWitnessPubKey,
+	}
+
+	for _, addrType := range addrTypes {
+		addr1, err := alice.LastUnusedAddress(addrType)
+		if err != nil {
+			require.NoError(t, err,
+				"unable to get addr",
+			)
+		}
+
+		addrList1, err := alice.ListWalletAddresses(addrType)
+		if err != nil {
+			require.NoError(t, err,
+				"unable to get wallet address list",
+			)
+		}
+
+		// Next, we'll have Bob pay to Alice's new address. This should
+		// trigger address rotation at the backend wallet.
+		addrScript, err := txscript.PayToAddrScript(addr1)
+		if err != nil {
+			require.NoError(t, err,
+				"unable to convert addr to script: %v",
+			)
+		}
+
+		feeRate := chainfee.SatPerKWeight(2500)
+
+		output := &wire.TxOut{
+			Value:    1000000,
+			PkScript: addrScript,
+		}
+
+		sendCoins(t, miner, bob, alice, output, feeRate, true, 1)
+
+		// If we make a new address, then it should be brand new, as
+		// the prior address has been used.
+		_, err = alice.LastUnusedAddress(addrType)
+		if err != nil {
+			require.NoError(t, err, "unable to get addr")
+		}
+
+		addrList2, err := alice.ListWalletAddresses(addrType)
+		if err != nil {
+			require.NoError(t, err,
+				"unable to get second wallet address list",
+			)
+		}
+
+		if len(addrList1) == len(addrList2) {
+			t.Fatalf("total number of wallet addresses " +
+				"should have increased, but didn't",
+			)
+		}
+
+		hasExistingAddress := false
+
+	CheckAddrListLoop:
+		for _, walletAddr1 := range addrList1 {
+			for _, walletAddr2 := range addrList2 {
+				if walletAddr1.String() == walletAddr2.String() {
+					hasExistingAddress = true
+					break CheckAddrListLoop
+				}
+			}
+		}
+
+		if !hasExistingAddress {
+			t.Fatalf("existing address before use and creation of " +
+				"new address not found in second call of " +
+				"wallet.ListWalletAddresses",
+			)
+		}
+	}
+}
+
 // testCreateSimpleTx checks that a call to CreateSimpleTx will return a
 // transaction that is equal to the one that is being created by SendOutputs in
 // a subsequent call.
@@ -2866,6 +2955,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "test get recovery info",
 		test: testGetRecoveryInfo,
+	},
+	{
+		name: "test list wallet addresses",
+		test: testListWalletAddresses,
 	},
 }
 

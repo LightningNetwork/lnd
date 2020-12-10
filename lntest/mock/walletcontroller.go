@@ -66,6 +66,13 @@ func (w *WalletController) NewAddress(addrType lnwallet.AddressType,
 	return addr, nil
 }
 
+// ListWalletAddresses currently returns dummy values.
+func (w *WalletController) ListWalletAddresses(addrType lnwallet.AddressType) (
+	[]btcutil.Address, error) {
+
+	return []btcutil.Address{}, nil
+}
+
 // LastUnusedAddress currently returns dummy values.
 func (w *WalletController) LastUnusedAddress(addrType lnwallet.AddressType) (
 	btcutil.Address, error) {

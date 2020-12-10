@@ -261,6 +261,8 @@ http:
     - selector: walletrpc.WalletKit.NextAddr
       post: "/v2/wallet/address/next"
       body: "*"
+    - selector: walletrpc.WalletKit.ListWalletAddresses
+      get: "/v2/wallet/address/list"
     - selector: walletrpc.WalletKit.PublishTransaction
       post: "/v2/wallet/tx"
       body: "*"

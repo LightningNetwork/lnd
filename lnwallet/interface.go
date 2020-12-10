@@ -179,6 +179,10 @@ type WalletController interface {
 	// IsOurAddress checks if the passed address belongs to this wallet
 	IsOurAddress(a btcutil.Address) bool
 
+	// ListWalletAddresses returns all addresses of addrType that have been
+	// created in the wallet.
+	ListWalletAddresses(addrType AddressType) ([]btcutil.Address, error)
+
 	// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
 	// out to the specified outputs. In the case the wallet has insufficient
 	// funds, or the outputs are non-standard, an error should be returned.
