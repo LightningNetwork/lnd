@@ -28,7 +28,7 @@ env:
   global:
     - GOCACHE=$HOME/.go-build
     - DOWNLOAD_CACHE=$HOME/download_cache
-    - BITCOIN_VERSION=0.20.1
+    - BITCOIN_VERSION=0.21.0
 
 sudo: required
 

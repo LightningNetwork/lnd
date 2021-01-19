@@ -17,7 +17,7 @@ env:
   GOCACHE: /home/runner/work/go/pkg/build
   GOPATH: /home/runner/work/go
   DOWNLOAD_CACHE: /home/runner/work/download_cache
-  BITCOIN_VERSION: 0.20.1
+  BITCOIN_VERSION: 0.21.0
 
   # If you change this value, please change it in the following files as well:
   # /.travis.yml

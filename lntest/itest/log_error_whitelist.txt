@@ -251,3 +251,4 @@
 <time> [ERR] UTXN: Failed to sweep first-stage HTLC (CLTV-delayed) output <chan_point>
 <time> [ERR] UTXN: Notification chan closed, can't advance output <chan_point>
 <time> [ERR] DISC: Unable to rebroadcast stale announcements: unable to retrieve outgoing channels: channel from self node has no policy
+<time> [ERR] NTFN: Unable to rewind chain from height 2 to height -1: unable to find blockhash for disconnected height=<height>: -8: Block height out of range
