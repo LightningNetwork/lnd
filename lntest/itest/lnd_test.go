@@ -10355,7 +10355,7 @@ func testGraphTopologyNotifications(net *lntest.NetworkHarness, t *harnessTest) 
 	// and two node announcements.
 	var numChannelUpds int
 	var numNodeAnns int
-	for numChannelUpds < 2 && numNodeAnns < 2 {
+	for numChannelUpds < 2 || numNodeAnns < 2 {
 		select {
 		// Ensure that a new update for both created edges is properly
 		// dispatched to our registered client.
@@ -10481,6 +10481,28 @@ out:
 	if err := net.ConnectNodes(ctxt, net.Bob, carol); err != nil {
 		t.Fatalf("unable to connect bob to carol: %v", err)
 	}
+
+	// Reconnect Alice and Bob. This should result in the nodes syncing up
+	// their respective graph state, with the new addition being the
+	// existence of Carol in the graph, and also the channel between Bob
+	// and Carol. Note that we will also receive a node announcement from
+	// Bob, since a node will update its node announcement after a new
+	// channel is opened. We connect Alice and Bob here to ensure her
+	// gossip filter isn't set after the announcements between Bob and Carol
+	// are generated.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
+		t.Fatalf("unable to connect alice to bob: %v", err)
+	}
+
+	// Alice shouldn't receive any new updates yet since the channel has yet
+	// to be opened.
+	select {
+	case <-graphSub.updateChan:
+		t.Fatalf("received unexpected update")
+	case <-time.After(time.Second):
+	}
+
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	chanPoint = openChannelAndAssert(
 		ctxt, t, net, net.Bob, carol,
@@ -10489,22 +10511,11 @@ out:
 		},
 	)
 
-	// Reconnect Alice and Bob. This should result in the nodes syncing up
-	// their respective graph state, with the new addition being the
-	// existence of Carol in the graph, and also the channel between Bob
-	// and Carol. Note that we will also receive a node announcement from
-	// Bob, since a node will update its node announcement after a new
-	// channel is opened.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	if err := net.EnsureConnected(ctxt, net.Alice, net.Bob); err != nil {
-		t.Fatalf("unable to connect alice to bob: %v", err)
-	}
-
 	// We should receive an update advertising the newly connected node,
 	// Bob's new node announcement, and the channel between Bob and Carol.
 	numNodeAnns = 0
 	numChannelUpds = 0
-	for numChannelUpds < 2 && numNodeAnns < 1 {
+	for numChannelUpds < 2 || numNodeAnns < 2 {
 		select {
 		case graphUpdate := <-graphSub.updateChan:
 			for _, nodeUpdate := range graphUpdate.NodeUpdates {
