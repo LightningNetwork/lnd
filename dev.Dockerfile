@@ -1,16 +1,6 @@
-# If you change this value, please change it in the following files as well:
-# /.travis.yml
-# /Dockerfile
-# /make/builder.Dockerfile
-# /.github/workflows/main.yml
-# /.github/workflows/release.yml
-FROM golang:1.15.7-alpine as builder
+FROM lnd-go-base:latest as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
-
-# Force Go to use the cgo based DNS resolver. This is required to ensure DNS
-# queries required to connect to linked containers succeed.
-ENV GODEBUG netdns=cgo
 
 # Install dependencies and install/build lnd.
 RUN apk add --no-cache --update alpine-sdk \

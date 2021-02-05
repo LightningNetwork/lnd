@@ -1,9 +1,10 @@
-FROM golang:1.15.7-buster
+FROM lnd-go-base:latest
 
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache --update alpine-sdk \
   git \
-  protobuf-compiler='3.6.1*' \
-  clang-format='1:7.0*'
+  bash \
+  protoc=3.13.0-r2 \
+  clang=10.0.1-r0
 
 # We don't want any default values for these variables to make sure they're
 # explicitly provided by parsing the go.mod file. Otherwise we might forget to

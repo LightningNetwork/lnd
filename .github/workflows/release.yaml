@@ -11,10 +11,8 @@ defaults:
 
 env:
   # If you change this value, please change it in the following files as well:
+  # /docker/lnd-go-base/Dockerfile
   # /.travis.yml
-  # /Dockerfile
-  # /dev.Dockerfile
-  # /make/builder.Dockerfile
   # /.github/workflows/main.yml
   GO_VERSION: 1.15.7
 

@@ -13,7 +13,7 @@ To build a standalone development image from the local source directory, use the
 following command:
 
 ```shell
-⛰  docker build --tag=myrepository/lnd-dev -f dev.Dockerfile .
+⛰  make docker-lnd-dev tag=myrpository/lnd-dev
 ```
 
 There is also a `docker-compose` setup available for development or testing that
@@ -29,7 +29,7 @@ Docker container, adding the appropriate command-line options as parameters.
 You first need to build the `lnd` docker image:
 
 ```shell
-⛰  docker build --tag=myrepository/lnd --build-arg checkout=v0.11.1-beta .
+⛰  make docker-lnd checkout=v0.11.1-beta tag=myrpository/lnd-dev
 ```
 
 It is recommended that you checkout the latest released tag.
@@ -114,19 +114,19 @@ To test the Docker production image locally, run the following from
 the project root:
 
 ```shell
-⛰  docker build . -t myrepository/lnd:master
+⛰  make docker-lnd tag=myrepository/lnd:master
 ```
 
 To choose a specific branch or tag instead, use the "checkout" build-arg.  For example, to build the latest commits in master:
 
 ```shell
-⛰  docker build . --build-arg checkout=v0.8.0-beta -t myrepository/lnd:v0.8.0-beta
+⛰  make docker-lnd checkout=v0.8.0-beta tag=myrepository/lnd:master
 ```
 
 To build the image using the most current tag:
 
 ```shell
-⛰  docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t myrepository/lnd:latest-tag
+⛰  make docker-lnd checkout=$(git describe --tags `git rev-list --tags --max-count=1`) tag=myrepository/lnd:latest-tag
 ```
 
 Once the image has been built and tagged locally, start the container:

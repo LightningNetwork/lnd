@@ -1,14 +1,6 @@
-# If you change this value, please change it in the following files as well:
-# /.travis.yml
-# /dev.Dockerfile
-# /make/builder.Dockerfile
-# /.github/workflows/main.yml
-# /.github/workflows/release.yml
-FROM golang:1.15.7-alpine as builder
+FROM lnd-go-base:latest as builder
 
-# Force Go to use the cgo based DNS resolver. This is required to ensure DNS
-# queries required to connect to linked containers succeed.
-ENV GODEBUG netdns=cgo
+LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
 # Pass a tag, branch or a commit using build-arg.  This allows a docker
 # image to be built from a specified Git state.  The default image

@@ -16,9 +16,7 @@ git:
 
 go:
   # If you change this value, please change it in the following files as well:
-  # /Dockerfile
-  # /dev.Dockerfile
-  # /make/builder.Dockerfile
+  # /docker/lnd-go-base/Dockerfile
   # /.github/workflows/main.yml
   # /.github/workflows/release.yml
   - "1.15.7"

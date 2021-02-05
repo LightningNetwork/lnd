@@ -1,4 +1,4 @@
-FROM golang:1.15.7-alpine as builder
+FROM lnd-go-base:latest as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 

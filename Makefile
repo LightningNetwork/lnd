@@ -155,16 +155,36 @@ release:
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
-docker-release:
+docker-release: docker-release-helper
 	@$(call print, "Building release helper docker image.")
 	if [ "$(tag)" = "" ]; then echo "Must specify tag=<commit_or_tag>!"; exit 1; fi
 
-	docker build -t lnd-release-helper -f make/builder.Dockerfile make/
 	$(DOCKER_RELEASE_HELPER) scripts/release.sh check-tag "$(VERSION_TAG)"
 	$(DOCKER_RELEASE_HELPER) scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
 scratch: build
 
+# ======
+# DOCKER
+# ======
+
+docker-go-base:
+	docker build -t lnd-go-base ./docker/lnd-go-base
+
+docker-lnd: docker-go-base
+	docker build $(DOCKER_LND_TAG) $(DOCKER_CHECKOUT) ./docker/lnd
+
+docker-lnd-dev: docker-go-base
+	docker build $(DOCKER_LND_DEV_TAG) -f dev.Dockerfile .
+
+docker-release-helper: docker-go-base
+	docker build -t lnd-release-helper -f make/builder.Dockerfile make/
+
+docker-btcd: docker-go-base
+	docker build -t lnd-btcd ./docker/btcd
+
+docker-ltcd: docker-go-base
+	docker build -t lnd-ltcd ./docker/ltcd
 
 # =======
 # TESTING
@@ -256,7 +276,7 @@ list:
 		grep -v Makefile | \
 		sort
 
-rpc:
+rpc: docker-go-base
 	@$(call print, "Compiling protos.")
 	cd ./lnrpc; ./gen_protos_docker.sh
 
