@@ -298,6 +298,10 @@
           "type": "boolean",
           "format": "boolean",
           "title": "stateless_init is an optional argument instructing the daemon NOT to create\nany *.macaroon files in its filesystem. If this parameter is set, then the\nadmin macaroon returned in the response MUST be stored by the caller of the\nRPC as otherwise all access to the daemon will be lost!"
+        },
+        "extended_master_key": {
+          "type": "string",
+          "description": "extended_master_key is an alternative to specifying cipher_seed_mnemonic and\naezeed_passphrase. Instead of deriving the master root key from the entropy\nof an aezeed cipher seed, the given extended master root key is used\ndirectly as the wallet's master key. This allows users to import/use a\nmaster key from another wallet. When doing so, lnd still uses its default\nSegWit only (BIP49/84) derivation paths and funds from custom/non-default\nderivation paths will not automatically appear in the on-chain wallet. Using\nan 'xprv' instead of an aezeed also has the disadvantage that the wallet's\nbirthday is not known as that is an information that's only encoded in the\naezeed, not the xprv. Therefore a \"safe\" default value is assumed for the\nbirthday: The date of the first mainnet block that contained SegWit\ntransactions."
         }
       }
     },

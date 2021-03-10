@@ -1252,13 +1252,17 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	case initMsg := <-pwService.InitMsgs:
 		password := initMsg.Passphrase
 		cipherSeed := initMsg.WalletSeed
+		extendedKey := initMsg.WalletExtendedKey
 		recoveryWindow := initMsg.RecoveryWindow
 
 		// Before we proceed, we'll check the internal version of the
 		// seed. If it's greater than the current key derivation
 		// version, then we'll return an error as we don't understand
 		// this.
-		if cipherSeed.InternalVersion != keychain.KeyDerivationVersion {
+		const latestVersion = keychain.KeyDerivationVersion
+		if cipherSeed != nil &&
+			cipherSeed.InternalVersion != latestVersion {
+
 			return nil, shutdown, fmt.Errorf("invalid internal "+
 				"seed version %v, current version is %v",
 				cipherSeed.InternalVersion,
@@ -1275,10 +1279,35 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 
 		// With the seed, we can now use the wallet loader to create
 		// the wallet, then pass it back to avoid unlocking it again.
-		birthday := cipherSeed.BirthdayTime()
-		newWallet, err := loader.CreateNewWallet(
-			password, password, cipherSeed.Entropy[:], birthday,
+		var (
+			birthday  time.Time
+			newWallet *wallet.Wallet
+			err       error
 		)
+
+		// The unlocker service made sure either the cipher seed or the
+		// extended key is set.
+		if cipherSeed != nil {
+			birthday = cipherSeed.BirthdayTime()
+			newWallet, err = loader.CreateNewWallet(
+				password, password, cipherSeed.Entropy[:],
+				birthday,
+			)
+		} else {
+			// When importing a wallet from its extended private key
+			// we don't know the birthday as that information is not
+			// encoded in that format. We therefore must set an
+			// arbitrary date to start rescanning at. Since lnd
+			// only uses SegWit addresses, we pick the date of the
+			// first block that contained SegWit transactions
+			// (481824).
+			birthday = time.Date(
+				2017, time.August, 24, 1, 57, 37, 0, time.UTC,
+			)
+			newWallet, err = loader.CreateNewWalletExtendedKey(
+				password, password, extendedKey, birthday,
+			)
+		}
 		if err != nil {
 			// Don't leave the file open in case the new wallet
 			// could not be created for whatever reason.
