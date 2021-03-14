@@ -425,6 +425,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 		macaroonService, err = macaroons.NewService(
 			cfg.networkDir, "lnd", walletInitParams.StatelessInit,
 			cfg.DB.Bolt.DBTimeout, macaroons.IPLockChecker,
+			macaroons.CustomChecker(interceptorChain),
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up macaroon "+

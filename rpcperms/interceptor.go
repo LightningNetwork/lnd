@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -70,8 +71,43 @@ var (
 )
 
 // InterceptorChain is a struct that can be added to the running GRPC server,
-// intercepting API calls. This is useful for logging, enforcing permissions
-// etc.
+// intercepting API calls. This is useful for logging, enforcing permissions,
+// supporting middleware etc. The following diagram shows the order of each
+// interceptor in the chain and when exactly requests/responses are intercepted
+// and forwarded to external middleware for approval/modification. Middleware in
+// general can only intercept gRPC requests/responses that are sent by the
+// client with a macaroon that contains a custom caveat that is supported by one
+// of the registered middlewares.
+//
+//        |
+//        | gRPC request from client
+//        |
+//    +---v--------------------------------+
+//    |   InterceptorChain                 |
+//    +-+----------------------------------+
+//      | Log Interceptor                  |
+//      +----------------------------------+
+//      | RPC State Interceptor            |
+//      +----------------------------------+
+//      | Macaroon Interceptor             |
+//      +----------------------------------+--------> +---------------------+
+//      | RPC Macaroon Middleware Handler  |<-------- | External Middleware |
+//      +----------------------------------+          |   - approve request |
+//      | Prometheus Interceptor           |          +---------------------+
+//      +-+--------------------------------+
+//        | validated gRPC request from client
+//    +---v--------------------------------+
+//    |   main gRPC server                 |
+//    +---+--------------------------------+
+//        |
+//        | original gRPC request to client
+//        |
+//    +---v--------------------------------+--------> +---------------------+
+//    |   RPC Macaroon Middleware Handler  |<-------- | External Middleware |
+//    +---+--------------------------------+          |   - modify response |
+//        |                                           +---------------------+
+//        | edited gRPC request to client
+//        v
 type InterceptorChain struct {
 	// state is the current RPC state of our RPC server.
 	state rpcState
@@ -89,6 +125,11 @@ type InterceptorChain struct {
 	// rpcsLog is the logger used to log calles to the RPCs intercepted.
 	rpcsLog btclog.Logger
 
+	// registeredMiddleware is a map of all macaroon permission based RPC
+	// middleware clients that are currently registered. The map is keyed
+	// by the middleware's custom caveat name that it is handling.
+	registeredMiddleware map[string]*MiddlewareHandler
+
 	sync.RWMutex
 }
 
@@ -102,10 +143,11 @@ func NewInterceptorChain(log btclog.Logger, noMacaroons,
 	}
 
 	return &InterceptorChain{
-		state:         startState,
-		noMacaroons:   noMacaroons,
-		permissionMap: make(map[string][]bakery.Op),
-		rpcsLog:       log,
+		state:                startState,
+		noMacaroons:          noMacaroons,
+		permissionMap:        make(map[string][]bakery.Op),
+		rpcsLog:              log,
+		registeredMiddleware: make(map[string]*MiddlewareHandler),
 	}
 }
 
@@ -165,6 +207,66 @@ func (r *InterceptorChain) Permissions() map[string][]bakery.Op {
 	return c
 }
 
+// RegisterMiddleware registers a new middleware that will handle request/
+// response interception for all RPC messages that are initiated with a custom
+// macaroon caveat. The name of the custom caveat a middleware is handling is
+// also its unique identifier. Only one middleware can be registered for each
+// custom caveat.
+func (r *InterceptorChain) RegisterMiddleware(mw *MiddlewareHandler) error {
+	r.Lock()
+	defer r.Unlock()
+
+	// For now we only want one middleware per custom caveat name. If we
+	// allowed multiple middlewares handling the same caveat there would be
+	// a need for extra call chaining logic and they could overwrite each
+	// other's responses.
+	registered, ok := r.registeredMiddleware[mw.customCaveatName]
+	if ok {
+		return fmt.Errorf("a middleware is already registered for the "+
+			"custom caveat name '%s': %v", mw.customCaveatName,
+			registered.middlewareName)
+	}
+
+	r.registeredMiddleware[mw.customCaveatName] = mw
+
+	return nil
+}
+
+// RemoveMiddleware removes the middleware that handles the given custom caveat
+// name.
+func (r *InterceptorChain) RemoveMiddleware(customCaveatName string) {
+	r.Lock()
+	defer r.Unlock()
+
+	delete(r.registeredMiddleware, customCaveatName)
+}
+
+// CustomCaveatSupported makes sure a middleware that handles the given custom
+// caveat name is registered. If none is, an error is returned, signalling to
+// the macaroon bakery and its validator to reject macaroons that have a custom
+// caveat with that name.
+//
+// NOTE: This method is part of the macaroons.CustomCaveatAcceptor interface.
+func (r *InterceptorChain) CustomCaveatSupported(customCaveatName string) error {
+	r.RLock()
+	defer r.RUnlock()
+
+	// We only accept requests with a custom caveat if we also have a
+	// middleware registered that handles that custom caveat. That is
+	// crucial for security! Otherwise a request with an encumbered (=has
+	// restricted permissions based upon the custom caveat condition)
+	// macaroon would not be validated against the limitations that the
+	// custom caveat implicate.
+	for _, middleware := range r.registeredMiddleware {
+		if middleware.customCaveatName == customCaveatName {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("cannot accept macaroon with custom caveat '%s', "+
+		"no middleware registered to handle it", customCaveatName)
+}
+
 // CreateServerOpts creates the GRPC server options that can be added to a GRPC
 // server in order to add this InterceptorChain.
 func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
@@ -197,6 +299,15 @@ func (r *InterceptorChain) CreateServerOpts() []grpc.ServerOption {
 	)
 	strmInterceptors = append(
 		strmInterceptors, r.MacaroonStreamServerInterceptor(),
+	)
+
+	// Next, we'll add the interceptors for our custom macaroon caveat based
+	// middleware.
+	unaryInterceptors = append(
+		unaryInterceptors, r.middlewareUnaryServerInterceptor(),
+	)
+	strmInterceptors = append(
+		strmInterceptors, r.middlewareStreamServerInterceptor(),
 	)
 
 	// Get interceptors for Prometheus to gather gRPC performance metrics.
@@ -407,4 +518,187 @@ func (r *InterceptorChain) rpcStateStreamServerInterceptor() grpc.StreamServerIn
 
 		return handler(srv, ss)
 	}
+}
+
+// middlewareUnaryServerInterceptor is an unary gRPC interceptor that intercepts
+// all requests and responses that are send with a macaroon containing a custom
+// caveat condition that is handled by registered middleware.
+func (r *InterceptorChain) middlewareUnaryServerInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context,
+		req interface{}, info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler) (interface{}, error) {
+
+		msg, err := NewMessageInterceptionRequest(
+			ctx, TypeRequest, false, info.FullMethod, req,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		err = r.acceptRequest(msg)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, respErr := handler(ctx, req)
+		if respErr != nil {
+			return resp, respErr
+		}
+
+		return r.interceptResponse(ctx, false, info.FullMethod, resp)
+	}
+}
+
+// middlewareStreamServerInterceptor is a streaming gRPC interceptor that
+// intercepts all requests and responses that are send with a macaroon
+// containing a custom caveat condition that is handled by registered
+// middleware.
+func (r *InterceptorChain) middlewareStreamServerInterceptor() grpc.StreamServerInterceptor {
+	return func(srv interface{},
+		ss grpc.ServerStream, info *grpc.StreamServerInfo,
+		handler grpc.StreamHandler) error {
+
+		// Don't intercept the interceptor itself which is a streaming
+		// RPC too!
+		if info.FullMethod == lnrpc.RegisterRPCMiddlewareURI {
+			return handler(srv, ss)
+		}
+
+		// To give the middleware a chance to accept or reject the
+		// establishment of the stream itself (and not only when the
+		// first message is sent on the stream), we send an intercept
+		// request for the stream auth now:
+		msg, err := NewStreamAuthInterceptionRequest(
+			ss.Context(), info.FullMethod,
+		)
+		if err != nil {
+			return err
+		}
+
+		err = r.acceptRequest(msg)
+		if err != nil {
+			return err
+		}
+
+		wrappedSS := &serverStreamWrapper{
+			baseServerStream: ss,
+			fullMethod:       info.FullMethod,
+			interceptor:      r,
+		}
+
+		return handler(srv, wrappedSS)
+	}
+}
+
+func (r *InterceptorChain) acceptRequest(msg *InterceptionRequest) error {
+	r.RLock()
+	defer r.RUnlock()
+
+	// TODO(guggero): Check if macaroon actually has any custom macaroons
+	// and only forward to the middleware that handles those caveats.
+
+	for _, middleware := range r.registeredMiddleware {
+		resp, err := middleware.intercept(msg)
+
+		// Error during interception itself.
+		if err != nil {
+			return err
+		}
+
+		// Error returned from middleware client.
+		if resp.err != nil {
+			return resp.err
+		}
+	}
+
+	return nil
+}
+
+func (r *InterceptorChain) interceptResponse(ctx context.Context,
+	isStream bool, fullMethod string, m interface{}) (interface{}, error) {
+
+	msg, err := NewMessageInterceptionRequest(
+		ctx, TypeResponse, isStream, fullMethod, m,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	r.RLock()
+	defer r.RUnlock()
+
+	// TODO(guggero): Check if macaroon actually has any custom macaroons
+	// and only forward to the middleware that handles those caveats.
+
+	for _, middleware := range r.registeredMiddleware {
+		resp, err := middleware.intercept(msg)
+
+		// Error during interception itself.
+		if err != nil {
+			return nil, err
+		}
+
+		// Error returned from middleware client.
+		if resp.err != nil {
+			return nil, resp.err
+		}
+
+		if resp.replace {
+			return resp.replacement, nil
+		}
+	}
+
+	return m, nil
+}
+
+type serverStreamWrapper struct {
+	baseServerStream grpc.ServerStream
+
+	fullMethod string
+
+	interceptor *InterceptorChain
+}
+
+func (w *serverStreamWrapper) SetHeader(md metadata.MD) error {
+	return w.baseServerStream.SetHeader(md)
+}
+
+func (w *serverStreamWrapper) SendHeader(md metadata.MD) error {
+	return w.baseServerStream.SendHeader(md)
+}
+
+func (w *serverStreamWrapper) SetTrailer(md metadata.MD) {
+	w.baseServerStream.SetTrailer(md)
+}
+
+func (w *serverStreamWrapper) Context() context.Context {
+	return w.baseServerStream.Context()
+}
+
+func (w *serverStreamWrapper) SendMsg(m interface{}) error {
+	newMsg, err := w.interceptor.interceptResponse(
+		w.baseServerStream.Context(), true, w.fullMethod, m,
+	)
+	if err != nil {
+		return err
+	}
+
+	return w.baseServerStream.SendMsg(newMsg)
+}
+
+func (w *serverStreamWrapper) RecvMsg(m interface{}) error {
+	err := w.baseServerStream.RecvMsg(m)
+	if err != nil {
+		return err
+	}
+
+	msg, err := NewMessageInterceptionRequest(
+		w.baseServerStream.Context(), TypeRequest, true, w.fullMethod,
+		m,
+	)
+	if err != nil {
+		return err
+	}
+
+	return w.interceptor.acceptRequest(msg)
 }

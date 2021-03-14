@@ -514,6 +514,21 @@ service Lightning {
     */
     rpc ListPermissions (ListPermissionsRequest)
         returns (ListPermissionsResponse);
+
+    /*
+    RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
+    gRPC middleware is software component external to lnd that aims to add
+    additional business logic to lnd by observing/intercepting/validating
+    incoming gRPC client requests and (if needed) replacing/overwriting outgoing
+    messages before they're sent to the client. When registering the middleware
+    must identify itself and indicate what custom macaroon caveats it wants to
+    be responsible for. Only requests that contain a macaroon with that specific
+    custom caveat are then sent to the middleware for inspection. As a security
+    measure, _no_ middleware can intercept requests made with _unencumbered_
+    macaroons!
+    */
+    rpc RegisterRPCMiddleware (stream RPCMiddlewareResponse)
+        returns (stream RPCMiddlewareRequest);
 }
 
 message Utxo {
