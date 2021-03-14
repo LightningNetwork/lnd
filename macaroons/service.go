@@ -175,25 +175,7 @@ func (svc *Service) RegisterExternalValidator(fullMethod string,
 func (svc *Service) ValidateMacaroon(ctx context.Context,
 	requiredPermissions []bakery.Op, fullMethod string) error {
 
-	// Get macaroon bytes from context and unmarshal into macaroon.
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return fmt.Errorf("unable to get metadata from context")
-	}
-	if len(md["macaroon"]) != 1 {
-		return fmt.Errorf("expected 1 macaroon, got %d",
-			len(md["macaroon"]))
-	}
-
-	// With the macaroon obtained, we'll now decode the hex-string
-	// encoding, then unmarshal it from binary into its concrete struct
-	// representation.
-	macBytes, err := hex.DecodeString(md["macaroon"][0])
-	if err != nil {
-		return err
-	}
-	mac := &macaroon.Macaroon{}
-	err = mac.UnmarshalBinary(macBytes)
+	mac, err := MacaroonFromContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -277,4 +259,33 @@ func (svc *Service) GenerateNewRootKey() error {
 // returns the result.
 func (svc *Service) ChangePassword(oldPw, newPw []byte) error {
 	return svc.rks.ChangePassword(oldPw, newPw)
+}
+
+// MacaroonFromContext is a helper function that extracts and parses a macaroon
+// from the given incoming gRPC request context.
+func MacaroonFromContext(ctx context.Context) (*macaroon.Macaroon, error) {
+	// Get macaroon bytes from context and unmarshal into macaroon.
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("unable to get metadata from context")
+	}
+	if len(md["macaroon"]) != 1 {
+		return nil, fmt.Errorf("expected 1 macaroon, got %d",
+			len(md["macaroon"]))
+	}
+
+	// With the macaroon obtained, we'll now decode the hex-string
+	// encoding, then unmarshal it from binary into its concrete struct
+	// representation.
+	macBytes, err := hex.DecodeString(md["macaroon"][0])
+	if err != nil {
+		return nil, err
+	}
+	mac := &macaroon.Macaroon{}
+	err = mac.UnmarshalBinary(macBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return mac, nil
 }
