@@ -65,6 +65,14 @@ var bakeMacaroonCommand = cli.Command{
 			Name:  "ip_address",
 			Usage: "the IP address the macaroon will be bound to",
 		},
+		cli.StringFlag{
+			Name:  "custom_caveat_name",
+			Usage: "the name of the custom caveat to add",
+		},
+		cli.StringFlag{
+			Name:  "custom_caveat_condition",
+			Usage: "the condition of the custom caveat to add",
+		},
 		cli.Uint64Flag{
 			Name:  "root_key_id",
 			Usage: "the numerical root key ID used to create the macaroon",
@@ -88,6 +96,8 @@ func bakeMacaroon(ctx *cli.Context) error {
 		savePath          string
 		timeout           int64
 		ipAddress         net.IP
+		customCaveatName  string
+		customCaveatCond  string
 		rootKeyID         uint64
 		parsedPermissions []*lnrpc.MacaroonPermission
 		err               error
@@ -109,6 +119,24 @@ func bakeMacaroon(ctx *cli.Context) error {
 		if ipAddress == nil {
 			return fmt.Errorf("unable to parse ip_address: %s",
 				ctx.String("ip_address"))
+		}
+	}
+
+	if ctx.IsSet("custom_caveat_name") {
+		customCaveatName = strings.TrimSpace(ctx.String(
+			"custom_caveat_name",
+		))
+		if customCaveatName == "" {
+			return fmt.Errorf("invalid custom caveat name")
+		}
+	}
+
+	if ctx.IsSet("custom_caveat_condition") {
+		customCaveatCond = strings.TrimSpace(ctx.String(
+			"custom_caveat_condition",
+		))
+		if customCaveatCond == "" {
+			return fmt.Errorf("invalid custom caveat condition")
 		}
 	}
 
@@ -179,6 +207,13 @@ func bakeMacaroon(ctx *cli.Context) error {
 		macConstraints = append(
 			macConstraints,
 			macaroons.IPLockConstraint(ipAddress.String()),
+		)
+	}
+	if customCaveatName != "" {
+		macConstraints = append(
+			macConstraints, macaroons.CustomConstraint(
+				customCaveatName, customCaveatCond,
+			),
 		)
 	}
 	constrainedMac, err := macaroons.AddConstraints(

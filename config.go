@@ -86,6 +86,13 @@ const (
 	// out and return false if it hasn't yet received a response.
 	defaultAcceptorTimeout = 15 * time.Second
 
+	// defaultRPCMiddlewareTimeout is the time after which a request sent to
+	// a gRPC interception middleware times out. This value is chosen very
+	// low since in a worst case scenario that time is added to a request's
+	// full duration twice (request and response interception) if a
+	// middleware is very slow.
+	defaultRPCMiddlewareTimeout = 2 * time.Second
+
 	defaultAlias = ""
 	defaultColor = "#3399FF"
 
@@ -199,14 +206,16 @@ type Config struct {
 	TLSAutoRefresh     bool     `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
 	TLSDisableAutofill bool     `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
 
-	NoMacaroons     bool          `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
-	AdminMacPath    string        `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
-	ReadMacPath     string        `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	InvoiceMacPath  string        `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
-	LogDir          string        `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles     int           `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize  int           `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
-	AcceptorTimeout time.Duration `long:"acceptortimeout" description:"Time after which an RPCAcceptor will time out and return false if it hasn't yet received a response"`
+	NoMacaroons    bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
+	AdminMacPath   string `long:"adminmacaroonpath" description:"Path to write the admin macaroon for lnd's RPC and REST services if it doesn't exist"`
+	ReadMacPath    string `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	InvoiceMacPath string `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
+	LogDir         string `long:"logdir" description:"Directory to log output."`
+	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+
+	AcceptorTimeout      time.Duration `long:"acceptortimeout" description:"Time after which an RPCAcceptor will time out and return false if it hasn't yet received a response"`
+	RPCMiddlewareTimeout time.Duration `long:"rpcmiddlewaretimeout" description:"Time after which a RpcMiddleware intercept request will time out and return an error if it hasn't yet received a response"`
 
 	LetsEncryptDir    string `long:"letsencryptdir" description:"The directory to store Let's Encrypt certificates within"`
 	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which lnd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address."`
@@ -357,18 +366,19 @@ type Config struct {
 // DefaultConfig returns all default values for the Config struct.
 func DefaultConfig() Config {
 	return Config{
-		LndDir:            DefaultLndDir,
-		ConfigFile:        DefaultConfigFile,
-		DataDir:           defaultDataDir,
-		DebugLevel:        defaultLogLevel,
-		TLSCertPath:       defaultTLSCertPath,
-		TLSKeyPath:        defaultTLSKeyPath,
-		LetsEncryptDir:    defaultLetsEncryptDir,
-		LetsEncryptListen: defaultLetsEncryptListen,
-		LogDir:            defaultLogDir,
-		MaxLogFiles:       defaultMaxLogFiles,
-		MaxLogFileSize:    defaultMaxLogFileSize,
-		AcceptorTimeout:   defaultAcceptorTimeout,
+		LndDir:               DefaultLndDir,
+		ConfigFile:           DefaultConfigFile,
+		DataDir:              defaultDataDir,
+		DebugLevel:           defaultLogLevel,
+		TLSCertPath:          defaultTLSCertPath,
+		TLSKeyPath:           defaultTLSKeyPath,
+		LetsEncryptDir:       defaultLetsEncryptDir,
+		LetsEncryptListen:    defaultLetsEncryptListen,
+		LogDir:               defaultLogDir,
+		MaxLogFiles:          defaultMaxLogFiles,
+		MaxLogFileSize:       defaultMaxLogFileSize,
+		AcceptorTimeout:      defaultAcceptorTimeout,
+		RPCMiddlewareTimeout: defaultRPCMiddlewareTimeout,
 		Bitcoin: &lncfg.Chain{
 			MinHTLCIn:     chainreg.DefaultBitcoinMinHTLCInMSat,
 			MinHTLCOut:    chainreg.DefaultBitcoinMinHTLCOutMSat,
