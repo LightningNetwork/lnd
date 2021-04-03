@@ -26,13 +26,13 @@ func TestTxInputSet(t *testing.T) {
 	// Create a 300 sat input. The fee to sweep this input to a P2WKH output
 	// is 439 sats. That means that this input yields -139 sats and we
 	// expect it not to be added.
-	if set.add(createP2WKHInput(300), constraintsRegular) {
+	if set.add(createP2WKHInput(300), nil, constraintsRegular) {
 		t.Fatal("expected add of negatively yielding input to fail")
 	}
 
 	// A 700 sat input should be accepted into the set, because it yields
 	// positively.
-	if !set.add(createP2WKHInput(700), constraintsRegular) {
+	if !set.add(createP2WKHInput(700), nil, constraintsRegular) {
 		t.Fatal("expected add of positively yielding input to succeed")
 	}
 
@@ -50,7 +50,7 @@ func TestTxInputSet(t *testing.T) {
 
 	// Add a 1000 sat input. This increases the tx fee to 712 sats. The tx
 	// output should now be 1000+700 - 712 = 988 sats.
-	if !set.add(createP2WKHInput(1000), constraintsRegular) {
+	if !set.add(createP2WKHInput(1000), nil, constraintsRegular) {
 		t.Fatal("expected add of positively yielding input to succeed")
 	}
 	if set.totalOutput() != 988 {
@@ -75,7 +75,7 @@ func TestTxInputSetFromWallet(t *testing.T) {
 
 	// Add a 700 sat input to the set. It yields positively, but doesn't
 	// reach the output dust limit.
-	if !set.add(createP2WKHInput(700), constraintsRegular) {
+	if !set.add(createP2WKHInput(700), nil, constraintsRegular) {
 		t.Fatal("expected add of positively yielding input to succeed")
 	}
 	if set.enoughInput() {
@@ -83,16 +83,16 @@ func TestTxInputSetFromWallet(t *testing.T) {
 	}
 
 	// Expect that adding a negative yield input fails.
-	if set.add(createP2WKHInput(50), constraintsRegular) {
+	if set.add(createP2WKHInput(50), nil, constraintsRegular) {
 		t.Fatal("expected negative yield input add to fail")
 	}
 
 	// Force add the negative yield input. It should succeed.
-	if !set.add(createP2WKHInput(50), constraintsForce) {
+	if !set.add(createP2WKHInput(50), nil, constraintsForce) {
 		t.Fatal("expected forced add to succeed")
 	}
 
-	err := set.tryAddWalletInputsIfNeeded()
+	err := set.tryAddWalletInputsIfNeeded(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 			PkScript: make([]byte, 33),
 		},
 	}
-	require.False(t, set.add(inp, constraintsRegular),
+	require.False(t, set.add(inp, nil, constraintsRegular),
 		"expected adding dust required tx out to fail")
 
 	// Create a 1000 sat input that also has a required TxOut of 1000 sat.
@@ -167,7 +167,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 			PkScript: make([]byte, 22),
 		},
 	}
-	require.True(t, set.add(inp, constraintsRegular), "failed adding input")
+	require.True(t, set.add(inp, nil, constraintsRegular), "failed adding input")
 
 	// The fee needed to pay for this input and output should be 439 sats.
 	fee := set.weightEstimate(false).fee()
@@ -195,7 +195,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	// transaction without a change output, but not large enough to afford
 	// adding a change output.
 	extraInput1 := weight.fee() + 100
-	require.True(t, set.add(createP2WKHInput(extraInput1), constraintsRegular),
+	require.True(t, set.add(createP2WKHInput(extraInput1), nil, constraintsRegular),
 		"expected add of positively yielding input to succeed")
 
 	// The change should be negative, since we would have to add a change
@@ -217,7 +217,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	extraInput2 := weight.fee() - extraInput1 + 100
 
 	// Add this input, which should result in the change now being 100 sats.
-	require.True(t, set.add(createP2WKHInput(extraInput2), constraintsRegular))
+	require.True(t, set.add(createP2WKHInput(extraInput2), nil, constraintsRegular))
 
 	// The change should be 100, since this is what is left after paying
 	// fees in case of a change output.
@@ -239,7 +239,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	// We expect the change to everything that is left after paying the tx
 	// fee.
 	extraInput3 := weight.fee() - extraInput1 - extraInput2 + 1000
-	require.True(t, set.add(createP2WKHInput(extraInput3), constraintsRegular))
+	require.True(t, set.add(createP2WKHInput(extraInput3), nil, constraintsRegular))
 
 	change = set.changeOutput
 	if change != 1000 {

@@ -232,6 +232,16 @@ type UtxoSweeper struct {
 
 	relayFeeRate chainfee.SatPerKWeight
 
+	// exclusiveGroupUtxos is a map that keeps track of any wallet UTXOs we
+	// have used in a sweep transaction that has inputs part of one or more
+	// exclusive groups. Each exclusive group is mapped to the list of
+	// wallet UTXOs it uses. The reason we track this is so we can reuse an
+	// UTXO from a sweep tx in another tx having inputs from the same
+	// exclusive group, since both TXs cannot be valid. This let us have
+	// multiple exclusive sweep TXs in flight, not using up UTXOs
+	// unnecessarily.
+	exclusiveGroupUtxos map[uint64]map[wire.OutPoint]*lnwallet.Utxo
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -321,13 +331,14 @@ type sweepInputMessage struct {
 // New returns a new Sweeper instance.
 func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 	return &UtxoSweeper{
-		cfg:               cfg,
-		newInputs:         make(chan *sweepInputMessage),
-		spendChan:         make(chan *chainntnfs.SpendDetail),
-		updateReqs:        make(chan *updateReq),
-		pendingSweepsReqs: make(chan *pendingSweepsReq),
-		quit:              make(chan struct{}),
-		pendingInputs:     make(pendingInputs),
+		cfg:                 cfg,
+		newInputs:           make(chan *sweepInputMessage),
+		spendChan:           make(chan *chainntnfs.SpendDetail),
+		updateReqs:          make(chan *updateReq),
+		pendingSweepsReqs:   make(chan *pendingSweepsReq),
+		quit:                make(chan struct{}),
+		pendingInputs:       make(pendingInputs),
+		exclusiveGroupUtxos: make(map[uint64]map[wire.OutPoint]*lnwallet.Utxo),
 	}
 }
 
@@ -664,7 +675,9 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 		// The timer expires and we are going to (re)sweep.
 		case <-s.timer:
-			log.Debugf("Sweep timer expired")
+			inputClusters := s.createInputClusters()
+			log.Debugf("Sweep timer expired. Number of input "+
+				"clusters: %v", len(inputClusters))
 
 			// Set timer to nil so we know that a new timer needs to
 			// be started when new inputs arrive.
@@ -676,7 +689,6 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			// this to ensure any inputs which have had their fee
 			// rate bumped are broadcast first in order enforce the
 			// RBF policy.
-			inputClusters := s.createInputClusters()
 			sort.Slice(inputClusters, func(i, j int) bool {
 				return inputClusters[i].sweepFeeRate >
 					inputClusters[j].sweepFeeRate
@@ -734,6 +746,8 @@ func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 			Err: ErrExclusiveGroupSpend,
 		})
 	}
+
+	delete(s.exclusiveGroupUtxos, group)
 }
 
 // sweepCluster tries to sweep the given input cluster.
@@ -1116,7 +1130,7 @@ func (s *UtxoSweeper) signalAndRemove(outpoint *wire.OutPoint, result Result) {
 // below the dust limit are not published. Those inputs remain pending and will
 // be bundled with future inputs if possible.
 func (s *UtxoSweeper) getInputLists(cluster inputCluster,
-	currentHeight int32) ([]inputSet, error) {
+	currentHeight int32) ([]*txInputSet, error) {
 
 	// Filter for inputs that need to be swept. Create two lists: all
 	// sweepable inputs and a list containing only the new, never tried
@@ -1146,13 +1160,13 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 	// If there is anything to retry, combine it with the new inputs and
 	// form input sets.
-	var allSets []inputSet
+	var allSets []*txInputSet
 	if len(retryInputs) > 0 {
 		var err error
 		allSets, err = generateInputPartitionings(
 			append(retryInputs, newInputs...), s.relayFeeRate,
 			cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
-			s.cfg.Wallet,
+			s.cfg.Wallet, s.exclusiveGroupUtxos,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1162,7 +1176,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 	// Create sets for just the new inputs.
 	newSets, err := generateInputPartitionings(
 		newInputs, s.relayFeeRate, cluster.sweepFeeRate,
-		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
+		s.cfg.MaxInputsPerTx, s.cfg.Wallet, s.exclusiveGroupUtxos,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1178,7 +1192,7 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes the
 // tx. The output address is only marked as used if the publish succeeds.
-func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
+func (s *UtxoSweeper) sweep(inputSet *txInputSet, feeRate chainfee.SatPerKWeight,
 	currentHeight int32) error {
 
 	// Generate an output script if there isn't an unused script available.
@@ -1192,8 +1206,9 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 
 	// Create sweep tx.
 	tx, err := createSweepTx(
-		inputs, nil, s.currentOutputScript, uint32(currentHeight),
-		feeRate, dustLimit(s.relayFeeRate), s.cfg.Signer,
+		inputSet.inputs, nil, s.currentOutputScript,
+		uint32(currentHeight), feeRate, dustLimit(s.relayFeeRate),
+		s.cfg.Signer,
 	)
 	if err != nil {
 		return fmt.Errorf("create sweep tx: %v", err)
@@ -1220,6 +1235,46 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	)
 
 	err = s.cfg.Wallet.PublishTransaction(tx, "")
+
+	switch {
+
+	// If the publication of the transaction fails for any reason, we
+	// remove the wallet inputs used for the exclusive groups in this set,
+	// if any. This is to recover if one of the underlying wallet inputs
+	// were spent by some other sub-system and is now not available
+	// anymore.
+	case err != nil:
+		for eg := range inputSet.exclusiveGroups {
+			utxos, ok := s.exclusiveGroupUtxos[eg]
+			if !ok {
+				continue
+			}
+
+			log.Warnf("Publication of tx failed, removing %d"+
+				"wallet UTXOs for exclusive group %d: %v",
+				len(utxos), eg, err)
+			delete(s.exclusiveGroupUtxos, eg)
+		}
+
+	// If the wallet accepted this tx, we keep track of the wallet UTXOs it
+	// spends for all exclusive grouped inputs.
+	default:
+		for eg := range inputSet.exclusiveGroups {
+			utxos, ok := s.exclusiveGroupUtxos[eg]
+			if !ok {
+				utxos = make(map[wire.OutPoint]*lnwallet.Utxo)
+			}
+
+			log.Debugf("Saving %d wallet UTXOs for exclusive "+
+				"group %d", len(inputSet.walletUtxos), eg)
+
+			for _, u := range inputSet.walletUtxos {
+				utxos[u.OutPoint] = u
+			}
+
+			s.exclusiveGroupUtxos[eg] = utxos
+		}
+	}
 
 	// In case of an unexpected error, don't try to recover.
 	if err != nil && err != lnwallet.ErrDoubleSpend {

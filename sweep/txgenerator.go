@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -27,10 +28,6 @@ type txInput interface {
 	parameters() Params
 }
 
-// inputSet is a set of inputs that can be used as the basis to generate a tx
-// on.
-type inputSet []input.Input
-
 // generateInputPartitionings goes through all given inputs and constructs sets
 // of inputs that can be used to generate a sensible transaction. Each set
 // contains up to the configured maximum number of inputs. Negative yield
@@ -38,7 +35,9 @@ type inputSet []input.Input
 // dust limit are returned.
 func generateInputPartitionings(sweepableInputs []txInput,
 	relayFeePerKW, feePerKW chainfee.SatPerKWeight,
-	maxInputsPerTx int, wallet Wallet) ([]inputSet, error) {
+	maxInputsPerTx int, wallet Wallet,
+	exclusiveGroupUtxos map[uint64]map[wire.OutPoint]*lnwallet.Utxo) (
+	[]*txInputSet, error) {
 
 	// Sort input by yield. We will start constructing input sets starting
 	// with the highest yield inputs. This is to prevent the construction
@@ -80,7 +79,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 	})
 
 	// Select blocks of inputs up to the configured maximum number.
-	var sets []inputSet
+	var sets []*txInputSet
 	for len(sweepableInputs) > 0 {
 		// Start building a set of positive-yield tx inputs under the
 		// condition that the tx will be published with the specified
@@ -100,9 +99,42 @@ func generateInputPartitionings(sweepableInputs []txInput,
 			return sets, nil
 		}
 
+		// We fetch any UTXOs already used by inputs of the same
+		// exclusive groups, since we prefer to re-use them instead of
+		// adding new wallet inputs.
+		var (
+			utxos   = make(map[wire.OutPoint]*lnwallet.Utxo)
+			exclStr = ""
+			first   = true
+		)
+
+		for eg := range txInputs.exclusiveGroups {
+			for k, v := range exclusiveGroupUtxos[eg] {
+				utxos[k] = v
+			}
+
+			if first {
+				exclStr += fmt.Sprintf("%d", eg)
+			} else {
+				exclStr += fmt.Sprintf(", %d", eg)
+			}
+			first = false
+		}
+
+		reuseUtxos := make([]*lnwallet.Utxo, 0, len(utxos))
+		for _, utxo := range utxos {
+			reuseUtxos = append(reuseUtxos, utxo)
+		}
+
+		if len(reuseUtxos) > 0 {
+			log.Infof("Re-using %d UTXOs for exclusive groups [%s]",
+				len(reuseUtxos), exclStr)
+		}
+
 		// Check the current output value and add wallet utxos if
 		// needed to push the output value to the lower limit.
-		if err := txInputs.tryAddWalletInputsIfNeeded(); err != nil {
+		err := txInputs.tryAddWalletInputsIfNeeded(reuseUtxos)
+		if err != nil {
 			return nil, err
 		}
 
@@ -124,7 +156,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 			txInputs.totalOutput()-txInputs.walletInputTotal,
 			txInputs.weightEstimate(true).weight())
 
-		sets = append(sets, txInputs.inputs)
+		sets = append(sets, txInputs)
 		sweepableInputs = sweepableInputs[inputCount:]
 	}
 
