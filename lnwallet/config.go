@@ -56,4 +56,10 @@ type Config struct {
 	// NetParams is the set of parameters that tells the wallet which chain
 	// it will be operating on.
 	NetParams chaincfg.Params
+
+	// IsRoutingNode indicates whether the node is currently configured to
+	// route payments. This is currently used to identify potentially unsafe
+	// funding flows, e.g. when accepting anchor channels with no utxos
+	// reserved for on-chain fees.
+	IsRoutingNode bool
 }

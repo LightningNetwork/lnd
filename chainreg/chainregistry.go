@@ -105,6 +105,12 @@ type Config struct {
 	// DBTimeOut specifies the timeout value to use when opening the wallet
 	// database.
 	DBTimeOut time.Duration
+
+	// IsRoutingNode indicates whether the daemon is currently configured to
+	// forward HTLCs. This is used internally by the wallet to determine
+	// potentially unsafe funding scenarios, e.g. when accepting incoming
+	// anchor channels without reserved UTXOs for on-chain fees.
+	IsRoutingNode bool
 }
 
 const (
@@ -648,6 +654,7 @@ func NewChainControl(cfg *Config) (*ChainControl, error) {
 		ChainIO:            cc.ChainIO,
 		DefaultConstraints: channelConstraints,
 		NetParams:          *cfg.ActiveNetParams.Params,
+		IsRoutingNode:      cfg.IsRoutingNode,
 	}
 	lnWallet, err := lnwallet.NewLightningWallet(walletCfg)
 	if err != nil {

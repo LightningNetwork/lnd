@@ -598,8 +598,16 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 	// but only if we are contributing funds to the channel. This is done
 	// to still allow incoming channels even though we have no UTXOs
 	// available, as in bootstrapping phases.
+	//
+	// We also increment the counter when _accepting_ an incoming anchor
+	// channel and the node is configured for HTLC forwarding. This ensures
+	// that we attempt to maintain an onchain UTXO for fee bumping in the
+	// event of unilateral closure. Not maintaining a fee bumping UTXO is
+	// dangerous when forwarding payments, since the node may not be able to
+	// sweep a disputed HTLC on the upstream channel with the preimage,
+	// resulting in loss of funds.
 	if pendingReservation.partialState.ChanType.HasAnchors() &&
-		intent.LocalFundingAmt() > 0 {
+		(intent.LocalFundingAmt() > 0 || l.Cfg.IsRoutingNode) {
 		numAnchors++
 	}
 
@@ -813,8 +821,16 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// but only if we are contributing funds to the channel. This is done
 	// to still allow incoming channels even though we have no UTXOs
 	// available, as in bootstrapping phases.
+	//
+	// We also increment the counter when _accepting_ an incoming anchor
+	// channel and the node is configured for HTLC forwarding. This ensures
+	// that we attempt to maintain an onchain UTXO for fee bumping in the
+	// event of unilateral closure. Not maintaining a fee bumping UTXO is
+	// dangerous when forwarding payments, since the node may not be able to
+	// sweep a disputed HTLC on the upstream channel with the preimage,
+	// resulting in loss of funds.
 	if req.CommitType == CommitmentTypeAnchorsZeroFeeHtlcTx &&
-		fundingIntent.LocalFundingAmt() > 0 {
+		(fundingIntent.LocalFundingAmt() > 0 || l.Cfg.IsRoutingNode) {
 		numAnchors++
 	}
 
