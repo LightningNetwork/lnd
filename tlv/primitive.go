@@ -258,7 +258,7 @@ func DBytes64(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
 // EPubKey is an Encoder for *btcec.PublicKey values. An error is returned if
 // val is not a **btcec.PublicKey.
 func EPubKey(w io.Writer, val interface{}, _ *[8]byte) error {
-	if pk, ok := val.(**btcec.PublicKey); ok {
+	if pk, ok := val.(**btcec.PublicKey); ok && *pk != nil {
 		_, err := w.Write((*pk).SerializeCompressed())
 		return err
 	}

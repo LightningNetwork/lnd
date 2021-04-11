@@ -1,4 +1,4 @@
-FUZZPKG = brontide lnwire wtwire zpay32
+FUZZPKG = brontide lnwire tlv wtwire zpay32
 FUZZ_TEST_RUN_TIME = 30
 FUZZ_TEST_TIMEOUT = 20
 FUZZ_NUM_PROCESSES = 4

@@ -36,7 +36,7 @@ BTCD_COMMIT := $(shell cat go.mod | \
 
 LINT_COMMIT := v1.18.0
 GOACC_COMMIT := ddc355013f90fea78d83d3a6c71f1d37ac07ecd5
-GOFUZZ_COMMIT := 21309f307f61
+GOFUZZ_COMMIT := 6a8e9d1f2415cf672ddbe864c2d4092287b33a21
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v
 GOBUILD := GO111MODULE=on go build -v
