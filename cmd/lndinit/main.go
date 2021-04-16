@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (
@@ -102,6 +105,7 @@ type subCommand interface {
 func registerCommands(parser *flags.Parser) error {
 	commands := []subCommand{
 		newGenPasswordCommand(),
+		newGenSeedCommand(),
 	}
 
 	for _, command := range commands {
@@ -124,4 +128,25 @@ func asJSON(resp interface{}) (string, error) {
 	out.WriteString("\n")
 
 	return out.String(), nil
+}
+
+func readFile(fileName string) (string, error) {
+	fileName = lncfg.CleanAndExpandPath(fileName)
+	if !lnrpc.FileExists(fileName) {
+		return "", fmt.Errorf("input file %s missing: %v", fileName,
+			errInputMissing)
+	}
+
+	byteContent, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return "", fmt.Errorf("error reading file %s: %v", fileName,
+			err)
+	}
+
+	content := string(byteContent)
+
+	// Remove any newlines at the end of the file. We won't ever write a
+	// newline ourselves but maybe the file was provisioned by another
+	// process or user.
+	return strings.TrimRight(content, "\r\n"), nil
 }
