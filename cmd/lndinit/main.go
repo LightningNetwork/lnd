@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +15,9 @@ const (
 	ExitCodeTargetExists int = 128
 	ExitCodeInputMissing int = 129
 	ExitCodeFailure      int = 255
+
+	outputFormatRaw  = "raw"
+	outputFormatJSON = "json"
 
 	errTargetExists = "target exists error"
 	errInputMissing = "input missing error"
@@ -95,7 +100,9 @@ type subCommand interface {
 }
 
 func registerCommands(parser *flags.Parser) error {
-	commands := []subCommand{}
+	commands := []subCommand{
+		newGenPasswordCommand(),
+	}
 
 	for _, command := range commands {
 		if err := command.Register(parser); err != nil {
@@ -104,4 +111,17 @@ func registerCommands(parser *flags.Parser) error {
 	}
 
 	return nil
+}
+
+func asJSON(resp interface{}) (string, error) {
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return "", err
+	}
+
+	var out bytes.Buffer
+	_ = json.Indent(&out, b, "", "\t")
+	out.WriteString("\n")
+
+	return out.String(), nil
 }

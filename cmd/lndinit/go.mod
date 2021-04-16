@@ -1,6 +1,10 @@
 module github.com/lightningnetwork/lnd/cmd/lndinit
 
-require github.com/jessevdk/go-flags v1.4.0
+require (
+	github.com/jessevdk/go-flags v1.4.0
+	github.com/kkdai/bstream v1.0.0
+	github.com/lightningnetwork/lnd v0.13.0-beta
+)
 
 replace github.com/lightningnetwork/lnd => ../../
 
