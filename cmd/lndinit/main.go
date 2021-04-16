@@ -112,6 +112,7 @@ func registerCommands(parser *flags.Parser) error {
 		newLoadSecretCommand(),
 		newInitWalletCommand(),
 		newStoreSecretCommand(),
+		newWaitReadyCommand(),
 	}
 
 	for _, command := range commands {
