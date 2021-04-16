@@ -128,9 +128,10 @@ $(GOFUZZ_BUILD_BIN):
 # ============
 
 build:
-	@$(call print, "Building debug lnd and lncli.")
+	@$(call print, "Building debug binaries.")
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_LDFLAGS) $(PKG)/cmd/lncli
+	cd cmd/lndinit; $(GOBUILD) -tags="$(DEV_TAGS)" -o ../../lndinit-debug $(DEV_LDFLAGS) .
 
 build-itest:
 	@$(call print, "Building itest btcd and lnd.")
@@ -141,19 +142,21 @@ build-itest:
 	CGO_ENABLED=0 $(GOTEST) -v ./lntest/itest -tags="$(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)" -c -o lntest/itest/itest.test$(EXEC_SUFFIX)
 
 install:
-	@$(call print, "Installing lnd and lncli.")
+	@$(call print, "Installing binaries.")
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lnd
 	$(GOINSTALL) -tags="${tags}" $(LDFLAGS) $(PKG)/cmd/lncli
+	cd cmd/lndinit; $(GOINSTALL) -tags="${tags}" $(LDFLAGS) .
 
 release-install:
-	@$(call print, "Installing release lnd and lncli.")
+	@$(call print, "Installing release binaries.")
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lncli
+	cd cmd/lndinit; env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" .
 
 # Make sure the generated mobile RPC stubs don't influence our vendor package
 # by removing them first in the clean-mobile target.
 release: clean-mobile
-	@$(call print, "Releasing lnd and lncli binaries.")
+	@$(call print, "Releasing binaries.")
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
 
@@ -303,7 +306,7 @@ mobile: ios android
 
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) ./lnd-debug ./lncli-debug ./lndinit-debug
 	$(RM) ./lnd-itest ./lncli-itest
 	$(RM) -r ./vendor .vendor-new
 

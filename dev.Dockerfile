@@ -33,6 +33,7 @@ EXPOSE 9735 10009
 # Copy the binaries and entrypoint from the builder image.
 COPY --from=builder /go/bin/lncli /bin/
 COPY --from=builder /go/bin/lnd /bin/
+COPY --from=builder /go/bin/lndinit /bin/
 
 # Add bash.
 RUN apk add --no-cache \
