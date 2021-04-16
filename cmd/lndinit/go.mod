@@ -1,6 +1,8 @@
 module github.com/lightningnetwork/lnd/cmd/lndinit
 
 require (
+	github.com/btcsuite/btcd v0.21.0-beta.0.20210513141527-ee5896bad5be
+	github.com/btcsuite/btcwallet v0.12.1-0.20210519225359-6ab9b615576f
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/kkdai/bstream v1.0.0
 	github.com/lightningnetwork/lnd v0.13.0-beta

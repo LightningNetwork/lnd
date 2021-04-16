@@ -22,6 +22,7 @@ const (
 	outputFormatRaw  = "raw"
 	outputFormatJSON = "json"
 
+	storageFile = "file"
 	storageK8s  = "k8s"
 
 	errTargetExists = "target exists error"
@@ -109,6 +110,7 @@ func registerCommands(parser *flags.Parser) error {
 		newGenPasswordCommand(),
 		newGenSeedCommand(),
 		newLoadSecretCommand(),
+		newInitWalletCommand(),
 		newStoreSecretCommand(),
 	}
 
