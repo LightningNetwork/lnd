@@ -99,7 +99,6 @@ script in the image that can be called (before starting the container for
 example):
 
 ```shell
-⛰  docker pull lightninglabs/lnd:v0.12.0-beta
 ⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.0-beta /verify-install.sh
 ⛰  OK=$?
 ⛰  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
