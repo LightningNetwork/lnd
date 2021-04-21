@@ -11,16 +11,22 @@ HEADER_JSON="Accept: application/json"
 HEADER_GH_JSON="Accept: application/vnd.github.v3+json"
 MIN_REQUIRED_SIGNATURES=5
 
-# All keys that can sign lnd releases. The key must be downloadable/importable
-# from the URL given after the space.
+# All keys that can sign lnd releases. The key must be added as a file to the
+# keys directory, for example: scripts/keys/<username>.asc
+# The username in the key file must match the username used for signing a
+# manifest (manifest-<username>-v0.xx.yy-beta.sig), otherwise the signature
+# won't be counted.
+# NOTE: Reviewers of this file must make sure that both the key IDs and
+# usernames in the list below are unique!
 KEYS=()
-KEYS+=("F4FC70F07310028424EFC20A8E4256593F177720 https://keybase.io/guggero/pgp_keys.asc")
-KEYS+=("15E7ECF257098A4EF91655EB4CA7FE54A6213C91 https://keybase.io/carlakirkcohen/pgp_keys.asc")
-KEYS+=("9C8D61868A7C492003B2744EE7D737B67FA592C7 https://keybase.io/bitconner/pgp_keys.asc")
-KEYS+=("E4D85299674B2D31FAA1892E372CBD7633C61696 https://keybase.io/roasbeef/pgp_keys.asc")
-KEYS+=("729E9D9D92C75A5FBFEEE057B5DD717BEF7CA5B1 https://keybase.io/wpaulino/pgp_keys.asc")
-KEYS+=("7E81EF6B9989A9CC93884803118759E83439A9B1 https://keybase.io/eugene_/pgp_keys.asc")
-KEYS+=("7AB3D7F5911708842796513415BAADA29DA20D26 https://keybase.io/halseth/pgp_keys.asc")
+KEYS+=("F4FC70F07310028424EFC20A8E4256593F177720 guggero")
+KEYS+=("15E7ECF257098A4EF91655EB4CA7FE54A6213C91 carlaKC")
+KEYS+=("9C8D61868A7C492003B2744EE7D737B67FA592C7 cfromknecht")
+KEYS+=("E4D85299674B2D31FAA1892E372CBD7633C61696 roasbeef")
+KEYS+=("729E9D9D92C75A5FBFEEE057B5DD717BEF7CA5B1 wpaulino")
+KEYS+=("7E81EF6B9989A9CC93884803118759E83439A9B1 Crypt-iQ")
+KEYS+=("7AB3D7F5911708842796513415BAADA29DA20D26 halseth")
+KEYS+=("9FC6B0BFD597A94DBF09708280E5375C094198D8 bhandras")
 
 TEMP_DIR=$(mktemp -d /tmp/lnd-sig-verification-XXXXXX)
 
@@ -42,16 +48,42 @@ function verify_version() {
 }
 
 function import_keys() {
+  # A trick to get the absolute directory where this script is located, no
+  # matter how or from where it was called. We'll need it to locate the key
+  # files which are located relative to this script.
+  DIR="$(cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
+
+  # Import all the signing keys. We'll create a key ring for each user and use
+  # that exact key ring when verifying a user's signature. That way we can make
+  # sure one user cannot just upload multiple signatures to reach the 5/7
+  # required sigs.
   for key in "${KEYS[@]}"; do
     KEY_ID=$(echo $key | cut -d' ' -f1)
-    IMPORT_URL=$(echo $key | cut -d' ' -f2)
-    echo "Downloading and importing key $KEY_ID from $IMPORT_URL"
-    curl -L -s $IMPORT_URL | gpg --import
+    USERNAME=$(echo $key | cut -d' ' -f2)
+    IMPORT_FILE="keys/$USERNAME.asc"
+    KEY_FILE="$DIR/$IMPORT_FILE"
+    KEYRING_UNTRUSTED="$TEMP_DIR/$USERNAME.pgp-untrusted"
+    KEYRING_TRUSTED="$TEMP_DIR/$USERNAME.pgp"
 
-    # Make sure we actually imported the correct key.
-    if ! gpg --list-key "$KEY_ID"; then
-      echo "ERROR: Imported key from $IMPORT_URL doesn't match ID $KEY_ID."
-    fi
+    # Because a key file could contain multiple keys, we need to be careful. To
+    # make sure we only import and use the key with the hard coded key ID of
+    # this script, we first import the file into a temporary untrusted keyring
+    # and then only export the specific key with the given ID into our final,
+    # trusted keyring that we later use for verification. This is exactly what
+    # https://github.com/Kixunil/sqck does but we didn't want to add another
+    # binary dependency to this script so we re-implemented it in the following
+    # few lines.
+    echo ""
+    echo "Importing key(s) from $KEY_FILE into temporary keyring $KEYRING_UNTRUSTED"
+    gpg --no-default-keyring --keyring "$KEYRING_UNTRUSTED" \
+      --import < "$KEY_FILE"
+
+    echo ""
+    echo "Exporting key $KEY_ID from untrusted keyring to trusted keyring $KEYRING_TRUSTED"
+    gpg --no-default-keyring --keyring "$KEYRING_UNTRUSTED" \
+      --export "$KEY_ID" | \
+      gpg --no-default-keyring --keyring "$KEYRING_TRUSTED" --import
+
   done
 }
 
