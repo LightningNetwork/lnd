@@ -32,6 +32,15 @@ function check_command() {
   fi
 }
 
+function verify_version() {
+  version_regex="^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]"
+  if [[ ! "$1" =~ $version_regex ]]; then
+    echo "ERROR: Invalid expected version detected: $1"
+    exit 1
+  fi
+  echo "Expected version for binaries: $1"
+}
+
 function import_keys() {
   for key in "${KEYS[@]}"; do
     KEY_ID=$(echo $key | cut -d' ' -f1)
@@ -49,7 +58,7 @@ function import_keys() {
 function verify_signatures() {
   # Download the JSON of the release itself. That'll contain the release ID we
   # need for the next call.
-  RELEASE_JSON=$(curl -L -s -H "$HEADER_JSON" "$RELEASE_URL/$LND_VERSION")
+  RELEASE_JSON=$(curl -L -s -H "$HEADER_JSON" "$RELEASE_URL/$VERSION")
 
   TAG_NAME=$(echo $RELEASE_JSON | jq -r '.tag_name')
   RELEASE_ID=$(echo $RELEASE_JSON | jq -r '.id')
@@ -63,11 +72,11 @@ function verify_signatures() {
   # Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
   # the detached signatures.
   echo "Downloading $MANIFEST"
-  curl -L -s -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$LND_VERSION/$MANIFEST"
+  curl -L -s -o "$TEMP_DIR/$MANIFEST" "$RELEASE_URL/download/$VERSION/$MANIFEST"
 
   for signature in $SIGNATURES; do
     echo "Downloading $signature"
-    curl -L -s -o "$TEMP_DIR/$signature" "$RELEASE_URL/download/$LND_VERSION/$signature"
+    curl -L -s -o "$TEMP_DIR/$signature" "$RELEASE_URL/download/$VERSION/$signature"
   done
 
   echo ""
@@ -104,7 +113,7 @@ function verify_signatures() {
     echo "  Valid signatures found: $NUM_CHECKS"
     echo "  Valid signatures required: $MIN_REQUIRED_SIGNATURES"
     echo
-    echo "  Make sure the release $LND_VERSION contains the required "
+    echo "  Make sure the release $VERSION contains the required "
     echo "  number of signatures on the manifest, or wait until more "
     echo "  signatures have been added to the release."
     exit 1
@@ -112,19 +121,39 @@ function verify_signatures() {
 }
 
 function check_hash() {
+  # Make this script compatible with both linux and *nix.
+  SHA_CMD="sha256sum"
+  if ! command -v "$SHA_CMD" > /dev/null; then
+    if command -v "shasum"; then
+      SHA_CMD="shasum -a 256"
+    else
+      echo "ERROR: no SHA256 sum binary installed!"
+      exit 1
+    fi
+  fi
+  SUM=$($SHA_CMD "$1" | cut -d' ' -f1)
+
+  # Make sure the hash was actually calculated by looking at its length.
+  if [[ ${#SUM} -ne 64 ]]; then
+    echo "ERROR: Invalid hash for $2: $SUM!"
+    exit 1
+  fi
+
+  echo "Verifying $1 as version $VERSION with SHA256 sum $SUM"
+
   # If we're inside the docker image, there should be a shasums.txt file in the
   # root directory. If that's the case, we first want to make sure we still have
   # the same hash as we did when building the image.
   if [[ -f /shasums.txt ]]; then
-    if ! grep -q "$1" /shasums.txt; then
-      echo "ERROR: Hash $1 for $2 not found in /shasums.txt: "
+    if ! grep -q "$SUM" /shasums.txt; then
+      echo "ERROR: Hash $SUM for $2 not found in /shasums.txt: "
       cat /shasums.txt
       exit 1
     fi
   fi
 
-  if ! grep -q "^$1" "$TEMP_DIR/$MANIFEST"; then
-    echo "ERROR: Hash $1 for $2 not found in $MANIFEST: "
+  if ! grep -q "^$SUM" "$TEMP_DIR/$MANIFEST"; then
+    echo "ERROR: Hash $SUM for $2 not found in $MANIFEST: "
     cat "$TEMP_DIR/$MANIFEST"
     echo "  The expected release binaries have been verified with the developer "
     echo "  signatures. Your binary's hash does not match the expected release "
@@ -136,6 +165,19 @@ function check_hash() {
 # By default we're picking up lnd and lncli from the system $PATH.
 LND_BIN=$(which lnd)
 LNCLI_BIN=$(which lncli)
+
+if [[ $# -eq 0 ]]; then
+  echo "ERROR: missing expected version!"
+  echo "Usage: verify-install.sh expected-version [path-to-lnd-binary path-to-lncli-binary]"
+  exit 1
+fi
+
+# The first argument should be the expected version of the binaries.
+VERSION=$1
+shift
+
+# Verify that the expected version is well-formed.
+verify_version "$VERSION"
 
 # If exactly two parameters are specified, we expect the first one to be lnd and
 # the second one to be lncli.
@@ -153,59 +195,22 @@ if [[ $# -eq 2 ]]; then
     exit 1
   fi
 elif [[ $# -eq 0 ]]; then
-  # Make sure both binaries can be found and are executable.
-  check_command lnd
-  check_command lncli
+  # By default we're picking up lnd and lncli from the system $PATH.
+  LND_BIN=$(which lnd)
+  LNCLI_BIN=$(which lncli)
 else
   echo "ERROR: invalid number of parameters!"
   echo "Usage: verify-install.sh [lnd-binary lncli-binary]"
   exit 1
 fi
 
+# Make sure both binaries can be found and are executable.
+check_command "$LND_BIN"
+check_command "$LNCLI_BIN"
+
 check_command curl
 check_command jq
 check_command gpg
-
-LND_VERSION=$($LND_BIN --version | cut -d'=' -f2)
-LNCLI_VERSION=$($LNCLI_BIN --version | cut -d'=' -f2)
-
-# Make this script compatible with both linux and *nix.
-SHA_CMD="sha256sum"
-if ! command -v "$SHA_CMD"; then
-  if command -v "shasum"; then
-    SHA_CMD="shasum -a 256"
-  else
-    echo "ERROR: no SHA256 sum binary installed!"
-    exit 1
-  fi
-fi
-LND_SUM=$($SHA_CMD $LND_BIN | cut -d' ' -f1)
-LNCLI_SUM=$($SHA_CMD $LNCLI_BIN | cut -d' ' -f1)
-
-echo "Detected lnd $LND_BIN version $LND_VERSION with SHA256 sum $LND_SUM"
-echo "Detected lncli $LNCLI_BIN version $LNCLI_VERSION with SHA256 sum $LNCLI_SUM"
-
-# Make sure lnd and lncli are installed with the same version and is an actual
-# version string.
-if [[ "$LNCLI_VERSION" != "$LND_VERSION" ]]; then
-  echo "ERROR: Version $LNCLI_VERSION of lncli does not match $LND_VERSION of lnd!"
-  exit 1
-fi
-version_regex="^v[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]"
-if [[ ! "$LND_VERSION" =~ $version_regex ]]; then
-  echo "ERROR: Invalid version of lnd detected: $LND_VERSION"
-  exit 1
-fi
-
-# Make sure the hash was actually calculated by looking at its length.
-if [[ ${#LND_SUM} -ne 64 ]]; then
-  echo "ERROR: Invalid hash for lnd: $LND_SUM!"
-  exit 1
-fi
-if [[ ${#LNCLI_SUM} -ne 64 ]]; then
-  echo "ERROR: Invalid hash for lncli: $LNCLI_SUM!"
-  exit 1
-fi
 
 # Import all the signing keys.
 import_keys
@@ -217,8 +222,8 @@ verify_signatures
 
 # Then make sure that the hash of the installed binaries can be found in the
 # manifest that we now have verified the signatures for.
-check_hash "$LND_SUM" "lnd"
-check_hash "$LNCLI_SUM" "lncli"
+check_hash "$LND_BIN" "lnd"
+check_hash "$LNCLI_BIN" "lncli"
 
 echo ""
 echo "SUCCESS! Verified lnd and lncli against $MANIFEST signed by $NUM_CHECKS developers."
