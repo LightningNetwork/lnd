@@ -101,6 +101,11 @@ function verify_signatures() {
   MANIFEST=$(echo $ASSETS | jq -r "$MANIFEST_SELECTOR")
   SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR")
 
+  # We need to make sure we have unique signature file names. Otherwise someone
+  # could just upload the same signature multiple times (if GH allows it for
+  # some reason).
+  SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR" | sort | uniq)
+
   # Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
   # the detached signatures.
   echo "Downloading $MANIFEST"
