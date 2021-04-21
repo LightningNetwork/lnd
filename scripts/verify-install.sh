@@ -103,7 +103,9 @@ function verify_signatures() {
 
   # We need to make sure we have unique signature file names. Otherwise someone
   # could just upload the same signature multiple times (if GH allows it for
-  # some reason).
+  # some reason). Just adding the same files under different names also won't
+  # work because we parse the signing user's name from the file. If a random
+  # username is chosen then a signing key won't be found for it.
   SIGNATURES=$(echo $ASSETS | jq -r "$SIGNATURE_SELECTOR" | sort | uniq)
 
   # Download the main "manifest-*.txt" and all "manifest-*.sig" files containing
@@ -118,17 +120,54 @@ function verify_signatures() {
 
   echo ""
 
-  # Before we even look at the content of the manifest, we first want to make
-  # sure the signatures actually sign that exact manifest.
+  # Before we even look at the content of the manifest, we first want to make sure
+  # the signatures actually sign that exact manifest.
   NUM_CHECKS=0
   for signature in $SIGNATURES; do
-    echo "Verifying $signature"
-    if gpg --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" 2>&1 | grep -q "Good signature"; then
-      echo "Signature for $signature appears valid: "
-      gpg --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" 2>&1 | grep "using"
-    elif gpg --verify "$TEMP_DIR/$signature" 2>&1 | grep -q "No public key"; then
-      echo "Unable to verify signature $signature, no key available, skipping"
+    # Remove everything from the filename after the username. We start with
+    # "manifest-USERNAME-v0.xx.yy-beta.sig" and have "manifest-USERNAME" after
+    # this step. 
+    USERNAME=${signature%-$VERSION.sig}
+
+    # Remove the manifest- part before the username.
+    USERNAME=${USERNAME##manifest-}
+
+    # If the user is known, they should have a key ring file with only their key.
+    KEYRING="$TEMP_DIR/$USERNAME.pgp"
+    if [[ ! -f "$KEYRING" ]]; then
+      echo "User $USERNAME does not have a known key, skipping"
       continue
+    fi
+
+    # We'll write the status of the verification to a special file that we can
+    # then inspect.
+    STATUS_FILE="$TEMP_DIR/$USERNAME.sign-status"
+
+    # Make sure we haven't yet tried to verify a signature for that user.
+    if [[ -f "$STATUS_FILE" ]]; then
+      echo "ERROR: A signature for user $USERNAME was already verified!"
+      echo "  Either file name $signature is wrong or multiple files of same "
+      echo "  user were uploaded."
+      exit 1
+    fi
+
+    # Run the actual verification.
+    gpg --no-default-keyring --keyring "$KEYRING" --status-fd=1 \
+      --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" \
+      > "$STATUS_FILE" 2>&1 || { echo "ERROR: Invalid signature!"; exit 1; } 
+
+    echo "Verifying $signature of user $USERNAME against key ring $KEYRING"
+    if grep -q "Good signature" "$STATUS_FILE"; then
+      echo "Signature for $signature appears valid: "
+      grep "VALIDSIG" "$STATUS_FILE"
+    elif grep -q "No public key" "$STATUS_FILE"; then
+      # Because we checked above if the user has a key, getting the "No public
+      # key" error now means the key used for signing doesn't match the key we
+      # have in our repo and is now a failure case.
+      echo "ERROR: Unable to verify signature $signature, no key available"
+      echo "  The signature $signature was signed with a different key than was"
+      echo "  imported for user $USERNAME."
+      exit 1
     else
       echo "ERROR: Did not get valid signature for $MANIFEST in $signature!"
       echo "  The developer signature $signature disagrees on the expected"
@@ -138,6 +177,7 @@ function verify_signatures() {
     fi
 
     echo "Verified $signature against $MANIFEST"
+    echo ""
     ((NUM_CHECKS=NUM_CHECKS+1))
   done
 
