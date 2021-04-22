@@ -245,7 +245,7 @@ LNCLI_BIN=$(which lncli)
 
 if [[ $# -eq 0 ]]; then
   echo "ERROR: missing expected version!"
-  echo "Usage: verify-install.sh expected-version [path-to-lnd-binary path-to-lncli-binary]"
+  echo "Usage: verify-install.sh expected-version [path-to-lnd-binary-or-download-archive [path-to-lncli-binary]]"
   exit 1
 fi
 
@@ -256,12 +256,19 @@ shift
 # Verify that the expected version is well-formed.
 verify_version "$VERSION"
 
+# Make sure we have all tools needed for the verification.
+check_command curl
+check_command jq
+check_command gpg
+
 # If exactly two parameters are specified, we expect the first one to be lnd and
-# the second one to be lncli.
+# the second one to be lncli. One parameter is either just a single binary or a
+# packaged release archive. No parameters means picking up lnd and lncli from
+# the system path.
 if [[ $# -eq 2 ]]; then
   LND_BIN=$(realpath $1)
   LNCLI_BIN=$(realpath $2)
-  
+
   # Make sure both files actually exist.
   if [[ ! -f $LND_BIN ]]; then
     echo "ERROR: $LND_BIN not found!"
@@ -271,23 +278,29 @@ if [[ $# -eq 2 ]]; then
     echo "ERROR: $LNCLI_BIN not found!"
     exit 1
   fi
+
+  # Make sure both binaries can be found and are executable.
+  check_command "$LND_BIN"
+  check_command "$LNCLI_BIN"
+
+elif [[ $# -eq 1 ]]; then
+  # We're verifying a single binary or a packaged release archive.
+  PACKAGE_BIN=$(realpath $1)
+
 elif [[ $# -eq 0 ]]; then
   # By default we're picking up lnd and lncli from the system $PATH.
   LND_BIN=$(which lnd)
   LNCLI_BIN=$(which lncli)
+
+  # Make sure both binaries can be found and are executable.
+  check_command "$LND_BIN"
+  check_command "$LNCLI_BIN"
+
 else
   echo "ERROR: invalid number of parameters!"
   echo "Usage: verify-install.sh [lnd-binary lncli-binary]"
   exit 1
 fi
-
-# Make sure both binaries can be found and are executable.
-check_command "$LND_BIN"
-check_command "$LNCLI_BIN"
-
-check_command curl
-check_command jq
-check_command gpg
 
 # Import all the signing keys.
 import_keys
@@ -299,8 +312,16 @@ verify_signatures
 
 # Then make sure that the hash of the installed binaries can be found in the
 # manifest that we now have verified the signatures for.
-check_hash "$LND_BIN" "lnd"
-check_hash "$LNCLI_BIN" "lncli"
+if [[ "$PACKAGE_BIN" != "" ]]; then
+  check_hash "$PACKAGE_BIN" "$PACKAGE_BIN"
 
-echo ""
-echo "SUCCESS! Verified lnd and lncli against $MANIFEST signed by $NUM_CHECKS developers."
+  echo ""
+  echo "SUCCESS! Verified $PACKAGE_BIN against $MANIFEST signed by $NUM_CHECKS developers."
+
+else
+  check_hash "$LND_BIN" "lnd"
+  check_hash "$LNCLI_BIN" "lncli"
+
+  echo ""
+  echo "SUCCESS! Verified lnd and lncli against $MANIFEST signed by $NUM_CHECKS developers."
+fi
