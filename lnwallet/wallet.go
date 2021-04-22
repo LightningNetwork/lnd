@@ -112,6 +112,12 @@ type InitFundingReserveMsg struct {
 	// to this channel.
 	RemoteFundingAmt btcutil.Amount
 
+	// FundUpToMaxAmt defines if channel funding should try to add as many
+	// funds to the channel opening as possible up to this amount. If used,
+	// then LocalAmt is treated as the minimum amount of funds that must be
+	// available to open the channel. If set to zero it is ignored.
+	FundUpToMaxAmt btcutil.Amount
+
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
 	// confirmation, it is recommended that this fee should be generous,
@@ -735,11 +741,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// the fee rate passed in to perform coin selection.
 		var err error
 		fundingReq := &chanfunding.Request{
-			RemoteAmt:    req.RemoteFundingAmt,
-			LocalAmt:     req.LocalFundingAmt,
-			MinConfs:     req.MinConfs,
-			SubtractFees: req.SubtractFees,
-			FeeRate:      req.FundingFeePerKw,
+			RemoteAmt:      req.RemoteFundingAmt,
+			LocalAmt:       req.LocalFundingAmt,
+			FundUpToMaxAmt: req.FundUpToMaxAmt,
+			MinConfs:       req.MinConfs,
+			SubtractFees:   req.SubtractFees,
+			FeeRate:        req.FundingFeePerKw,
 			ChangeAddr: func() (btcutil.Address, error) {
 				return l.NewAddress(
 					WitnessPubKey, true, DefaultAccountName,

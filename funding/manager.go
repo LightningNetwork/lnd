@@ -3177,6 +3177,14 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		return
 	}
 
+	// If the caller specified to spend all funds, then we
+	// define the maximum allowed funding amount to be the
+	// current limit of the maximum funding amount.
+	var fundUpToMaxAmt btcutil.Amount
+	if msg.FundMax {
+		fundUpToMaxAmt = MaxBtcFundingAmount
+	}
+
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
@@ -3214,6 +3222,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		SubtractFees:     msg.SubtractFees,
 		LocalFundingAmt:  localAmt,
 		RemoteFundingAmt: 0,
+		FundUpToMaxAmt:   fundUpToMaxAmt,
 		CommitFeePerKw:   commitFeePerKw,
 		FundingFeePerKw:  msg.FundingFeePerKw,
 		PushMSat:         msg.PushAmt,

@@ -96,6 +96,12 @@ var openChannelCommand = cli.Command{
 			Name:  "connect",
 			Usage: "(optional) the host:port of the target node",
 		},
+		cli.BoolFlag{
+			Name: "fundmax",
+			Usage: "(optional) if set, the wallet will attempt to " +
+				"commit the maximum possible local amount to the channel. " +
+				"Should not be set together with local_amt",
+		},
 		cli.IntFlag{
 			Name:  "local_amt",
 			Usage: "the number of satoshis the wallet should commit to the channel",
@@ -239,6 +245,7 @@ func openChannel(ctx *cli.Context) error {
 		CloseAddress:               ctx.String("close_address"),
 		RemoteMaxValueInFlightMsat: ctx.Uint64("remote_max_value_in_flight_msat"),
 		MaxLocalCsv:                uint32(ctx.Uint64("max_local_csv")),
+		FundMax:                    ctx.Bool("fundmax"),
 	}
 
 	switch {
@@ -294,6 +301,11 @@ func openChannel(ctx *cli.Context) error {
 		args = args.Tail()
 	default:
 		return fmt.Errorf("local amt argument missing")
+	}
+
+	if ctx.Bool("fundmax") && req.LocalFundingAmount != 0 {
+		return fmt.Errorf("local amount cannot be set if attempting to " +
+			"commit the maximum amount out of the wallet")
 	}
 
 	if ctx.IsSet("push_amt") {
