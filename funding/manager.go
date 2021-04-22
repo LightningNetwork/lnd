@@ -229,6 +229,12 @@ type InitFundingMsg struct {
 	// peer.
 	MaxLocalCsv uint16
 
+	// FundMax denotes the attempt to commit all the coins under
+	// control of the internal wallet to the channel, while treating
+	// the localFundingAmt field as the acceptable minimum amount to
+	// commit to.
+	FundMax bool
+
 	// ChanFunder is an optional channel funder that allows the caller to
 	// control exactly how the channel funding is carried out. If not
 	// specified, then the default chanfunding.WalletAssembler will be
