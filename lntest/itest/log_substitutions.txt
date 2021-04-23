@@ -6,6 +6,9 @@ s/[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2} [[:digit:]]{2}:[[:digit:]]{2}:[[:
 s/[[:digit:]]{4}-[[:digit:]]{2}-[[:digit:]]{2}T[[:digit:]]{2}:[[:digit:]]{2}:[[:digit:]]{2}\.[[:digit:]]{1,18}Z/<time>/g
 s/[[:digit:]]+\:[[:digit:]]+\:[[:digit:]]+/<chan>/g
 s/[[:digit:]]+ mSAT/<amt>/g
+s/\-?[[:digit:]]+(\.[[:digit:]]{0,8})? BTC/<amt>/g
+s/([fee|minimum])=[[:digit:]]+/\1=<amt>/g
+s/funder balance too small \(\-?[[:digit:]]+\)/funder balance too small (<amt>)/g
 s/HTLC ID = [[:digit:]]+/HTLC ID = <id>/g
 s/height=[[:digit:]]+/height=<height>/g
 s/collecting result for shard [[:digit:]]+/collecting result for shard <number>/g
