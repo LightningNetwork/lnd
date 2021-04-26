@@ -4791,6 +4791,11 @@
           "type": "integer",
           "format": "int64",
           "description": "Max local csv is the maximum csv delay we will allow for our own commitment\ntransaction."
+        },
+        "remote_chan_reserve_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The number of satoshis we require the remote peer to reserve."
         }
       }
     },

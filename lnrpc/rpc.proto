@@ -1854,6 +1854,9 @@ message OpenChannelRequest {
     transaction.
     */
     uint32 max_local_csv = 17;
+
+    // The number of satoshis we require the remote peer to reserve.
+    int64 remote_chan_reserve_sat = 18;
 }
 message OpenStatusUpdate {
     oneof update {

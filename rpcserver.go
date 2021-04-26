@@ -1783,6 +1783,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	remoteInitialBalance := btcutil.Amount(in.PushSat)
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)
 	remoteCsvDelay := uint16(in.RemoteCsvDelay)
+	remoteChanReserve := btcutil.Amount(in.RemoteChanReserveSat)
 	maxValue := lnwire.MilliSatoshi(in.RemoteMaxValueInFlightMsat)
 	maxHtlcs := uint16(in.RemoteMaxHtlcs)
 
@@ -1882,6 +1883,13 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		return nil, err
 	}
 
+	// Ensure that we properly validate the remote channel reserve amount that
+	// was set for this channel.
+	err = r.validateChanReserve(remoteChanReserve, localFundingAmt)
+	if err != nil {
+		return nil, err
+	}
+
 	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for funding tx",
 		int64(feeRate))
 
@@ -1897,20 +1905,41 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
 	return &funding.InitFundingMsg{
-		TargetPubkey:     nodePubKey,
-		ChainHash:        *r.cfg.ActiveNetParams.GenesisHash,
-		LocalFundingAmt:  localFundingAmt,
-		PushAmt:          lnwire.NewMSatFromSatoshis(remoteInitialBalance),
-		MinHtlcIn:        minHtlcIn,
-		FundingFeePerKw:  feeRate,
-		Private:          in.Private,
-		RemoteCsvDelay:   remoteCsvDelay,
-		MinConfs:         minConfs,
-		ShutdownScript:   script,
-		MaxValueInFlight: maxValue,
-		MaxHtlcs:         maxHtlcs,
-		MaxLocalCsv:      uint16(in.MaxLocalCsv),
+		TargetPubkey:      nodePubKey,
+		ChainHash:         *r.cfg.ActiveNetParams.GenesisHash,
+		LocalFundingAmt:   localFundingAmt,
+		PushAmt:           lnwire.NewMSatFromSatoshis(remoteInitialBalance),
+		MinHtlcIn:         minHtlcIn,
+		FundingFeePerKw:   feeRate,
+		Private:           in.Private,
+		RemoteCsvDelay:    remoteCsvDelay,
+		MinConfs:          minConfs,
+		ShutdownScript:    script,
+		MaxValueInFlight:  maxValue,
+		MaxHtlcs:          maxHtlcs,
+		MaxLocalCsv:       uint16(in.MaxLocalCsv),
+		RemoteChanReserve: remoteChanReserve,
 	}, nil
+}
+
+// validateChanReserve validates the remote channel reserve was set for this
+// channel in open channel request. This is mainly to ensure that reservation,
+// if set, is not bellow the dust limit and not above the local funding amount.
+func (r *rpcServer) validateChanReserve(chanReserve btcutil.Amount,
+	localFundingAmt btcutil.Amount) error {
+
+	dustLimit := lnwallet.DefaultDustLimit()
+	if chanReserve > 0 && chanReserve < dustLimit {
+		return errors.New("remote channel reserve was set to be less than " +
+			"the dust limit")
+	}
+
+	if chanReserve >= localFundingAmt {
+		return errors.New("remote channel reserve is too high, must be " +
+			"less than channel capacity")
+	}
+
+	return nil
 }
 
 // OpenChannel attempts to open a singly funded channel specified in the
