@@ -287,8 +287,17 @@ func runSTM(s *stm, apply func(STM) error) error {
 	select {
 	case <-done:
 	case <-s.options.ctx.Done():
+		return context.Canceled
 	}
 
+	// If the transaction executed, we can decrement the read and write lock
+	// sets and apply an commit stat callbacks.
+	//
+	// NOTE: It is not safe to do this in the case where the context is
+	// canceled, as it might inadvertently unblock other transactions that
+	// _should_ depend on this one. Furthermore, the executeErr is mutable
+	// so long as the done channel hasn't returned, so we can't read or
+	// return it.
 	s.txQueue.Done(s.rset, s.wset)
 
 	if s.options.commitStatsCallback != nil {

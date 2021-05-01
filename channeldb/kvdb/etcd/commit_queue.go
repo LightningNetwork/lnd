@@ -3,13 +3,11 @@
 package etcd
 
 import (
+	"container/list"
 	"context"
 	"sync"
+	"time"
 )
-
-// commitQueueSize is the maximum number of commits we let to queue up. All
-// remaining commits will block on commitQueue.Add().
-const commitQueueSize = 100
 
 // commitQueue is a simple execution queue to manage conflicts for transactions
 // and thereby reduce the number of times conflicting transactions need to be
@@ -25,9 +23,12 @@ type commitQueue struct {
 	readerMap map[string]int
 	writerMap map[string]int
 
-	commitMutex sync.RWMutex
-	queue       chan (func())
-	wg          sync.WaitGroup
+	queueMu   sync.RWMutex
+	queueCond *sync.Cond
+	queue     *list.List
+	freeCount uint32
+
+	shutdown chan struct{}
 }
 
 // NewCommitQueue creates a new commit queue, with the passed abort context.
@@ -36,11 +37,12 @@ func NewCommitQueue(ctx context.Context) *commitQueue {
 		ctx:       ctx,
 		readerMap: make(map[string]int),
 		writerMap: make(map[string]int),
-		queue:     make(chan func(), commitQueueSize),
+		queue:     list.New(),
+		shutdown:  make(chan struct{}),
 	}
+	q.queueCond = sync.NewCond(&q.queueMu)
 
 	// Start the queue consumer loop.
-	q.wg.Add(1)
 	go q.mainLoop()
 
 	return q
@@ -48,7 +50,7 @@ func NewCommitQueue(ctx context.Context) *commitQueue {
 
 // Wait waits for the queue to stop (after the queue context has been canceled).
 func (c *commitQueue) Wait() {
-	c.wg.Wait()
+	c.signalUntilShutdown()
 }
 
 // Add increases lock counts and queues up tx commit closure for execution.
@@ -83,27 +85,38 @@ func (c *commitQueue) Add(commitLoop func(), rset readSet, wset writeSet) {
 	}
 
 	if blocked {
-		// Add the transaction to the queue if conflicts with an already
-		// queued one.
+		// Add the transaction to the queue if it conflicts with an
+		// already queued one. It is safe to do so outside the lock,
+		// since this we know it will be executed serially.
 		c.mx.Unlock()
 
-		select {
-		case c.queue <- commitLoop:
-		case <-c.ctx.Done():
-		}
+		c.queueCond.L.Lock()
+		c.queue.PushBack(commitLoop)
+		c.queueCond.L.Unlock()
 	} else {
 		// To make sure we don't add a new tx to the queue that depends
-		// on this "unblocked" tx, grab the commitMutex before lifting
-		// the mutex guarding the lock maps.
-		c.commitMutex.RLock()
+		// on this "unblocked" tx. Increment our free counter before
+		// unlocking so that the mainLoop stops pulling off blocked
+		// transactions from the queue.
+
+		c.queueCond.L.Lock()
+		c.freeCount++
+		c.queueCond.L.Unlock()
+
 		c.mx.Unlock()
 
-		// At this point we're safe to execute the "unblocked" tx, as
-		// we cannot execute blocked tx that may have been read from the
-		// queue until the commitMutex is held.
-		commitLoop()
+		// At this point it is safe to execute the "unblocked" tx, as no
+		// blocked tx will be read from the queue until the freeCount is
+		// decremented back to 0.
+		go func() {
+			commitLoop()
 
-		c.commitMutex.RUnlock()
+			c.queueCond.L.Lock()
+			c.freeCount--
+			c.queueCond.L.Unlock()
+			c.queueCond.Signal()
+		}()
+
 	}
 }
 
@@ -131,19 +144,58 @@ func (c *commitQueue) Done(rset readSet, wset writeSet) {
 // dependencies. The queue ensures that the top element doesn't conflict with
 // any other transactions and therefore can be executed freely.
 func (c *commitQueue) mainLoop() {
-	defer c.wg.Done()
+	defer close(c.shutdown)
 
 	for {
-		select {
-		case top := <-c.queue:
-			// Execute the next blocked transaction. As it is
-			// the top element in the queue it means that it doesn't
-			// depend on any other transactions anymore.
-			c.commitMutex.Lock()
-			top()
-			c.commitMutex.Unlock()
+		// Wait until there are no unblocked transactions being
+		// executed, and for there to be at least one blocked
+		// transaction in our queue.
+		c.queueCond.L.Lock()
+		for c.freeCount > 0 || c.queue.Front() == nil {
+			c.queueCond.Wait()
 
+			// Check the exit condition before looping again.
+			select {
+			case <-c.ctx.Done():
+				c.queueCond.L.Unlock()
+				return
+			default:
+			}
+		}
+
+		// Remove the top element from the queue, now that we know there
+		// are no possible conflicts.
+		e := c.queue.Front()
+		top := c.queue.Remove(e).(func())
+		c.queueCond.L.Unlock()
+
+		// Check if we need to exit before continuing.
+		select {
 		case <-c.ctx.Done():
+			return
+		default:
+		}
+
+		// Execute the next blocked transaction.
+		top()
+
+		// Check if we need to exit before continuing.
+		select {
+		case <-c.ctx.Done():
+			return
+		default:
+		}
+	}
+}
+
+// signalUntilShutdown strobes the queue's condition variable to ensure the
+// mainLoop reliably unblocks to check for the exit condition.
+func (c *commitQueue) signalUntilShutdown() {
+	for {
+		select {
+		case <-time.After(time.Millisecond):
+			c.queueCond.Signal()
+		case <-c.shutdown:
 			return
 		}
 	}

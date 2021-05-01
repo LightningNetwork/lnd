@@ -7,7 +7,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -15,16 +14,18 @@ import (
 // TestCommitQueue tests that non-conflicting transactions commit concurrently,
 // while conflicting transactions are queued up.
 func TestCommitQueue(t *testing.T) {
-	// The duration of each commit.
-	const commitDuration = time.Millisecond * 500
 	const numCommits = 4
-
 	var wg sync.WaitGroup
 	commits := make([]string, numCommits)
 	idx := int32(-1)
 
-	commit := func(tag string, sleep bool) func() {
+	commit := func(tag string, commit chan struct{},
+		ready <-chan struct{}) func() {
+
 		return func() {
+			if commit != nil {
+				close(commit)
+			}
 			defer wg.Done()
 
 			// Update our log of commit order. Avoid blocking
@@ -33,8 +34,8 @@ func TestCommitQueue(t *testing.T) {
 			i := atomic.AddInt32(&idx, 1)
 			commits[i] = tag
 
-			if sleep {
-				time.Sleep(commitDuration)
+			if ready != nil {
+				<-ready
 			}
 		}
 	}
@@ -68,45 +69,53 @@ func TestCommitQueue(t *testing.T) {
 	defer cancel()
 
 	wg.Add(numCommits)
-	t1 := time.Now()
+
+	ready := make(chan struct{})
 
 	// Tx1: reads: key1, key2, writes: key3, conflict: none
+	// Since we simulate that the txn takes a long time, we'll add in a
+	// new goroutine and wait for the txn commit to start execution.
 	q.Add(
-		commit("free", true),
+		commit("free", nil, ready),
 		makeReadSet([]string{"key1", "key2"}),
 		makeWriteSet([]string{"key3"}),
 	)
-	// Tx2: reads: key1, key2, writes: key3, conflict: Tx1
+
+	// Tx2: reads: key1, key5, writes: key3, conflict: Tx1 (key3)
+	// We don't expect queue add to block as this txn will queue up after
+	// tx1.
 	q.Add(
-		commit("blocked1", false),
+		commit("blocked1", nil, nil),
 		makeReadSet([]string{"key1", "key2"}),
 		makeWriteSet([]string{"key3"}),
 	)
-	// Tx3: reads: key1, writes: key4, conflict: none
+
+	// Tx3: reads: key1, key2, writes: key4, conflict: none
+	// We expect this transaction to be reordered before blocked1, even
+	// though it was added after since it it doesn't have any conflicts.
 	q.Add(
-		commit("free", true),
+		commit("free", nil, ready),
 		makeReadSet([]string{"key1", "key2"}),
 		makeWriteSet([]string{"key4"}),
 	)
-	// Tx4: reads: key2, writes: key4 conflict: Tx3
+
+	// Tx4: reads: key2, writes: key4 conflicts: Tx3 (key4)
+	// We don't expect queue add to block as this txn will queue up after
+	// tx2.
 	q.Add(
-		commit("blocked2", false),
+		commit("blocked2", nil, nil),
 		makeReadSet([]string{"key2"}),
 		makeWriteSet([]string{"key4"}),
 	)
 
+	// Allow Tx1 to continue with the commit.
+	close(ready)
+
 	// Wait for all commits.
 	wg.Wait()
-	t2 := time.Now()
-
-	// Expected total execution time: delta.
-	// 2 * commitDuration <= delta < 3 * commitDuration
-	delta := t2.Sub(t1)
-	require.LessOrEqual(t, int64(commitDuration*2), int64(delta))
-	require.Greater(t, int64(commitDuration*3), int64(delta))
 
 	// Expect that the non-conflicting "free" transactions are executed
-	// before the blocking ones, and the blocking ones are executed in
+	// before the conflicting ones, and the conflicting ones are executed in
 	// the order of addition.
 	require.Equal(t,
 		[]string{"free", "free", "blocked1", "blocked2"},

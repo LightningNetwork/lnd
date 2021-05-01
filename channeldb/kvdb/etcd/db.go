@@ -116,6 +116,8 @@ func (c *commitStatsCollector) callback(succ bool, stats CommitStats) {
 
 // db holds a reference to the etcd client connection.
 type db struct {
+	ctx                  context.Context
+	cancel               func()
 	config               BackendConfig
 	cli                  *clientv3.Client
 	commitStatsCollector *commitStatsCollector
@@ -168,6 +170,8 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 		config.Ctx = context.Background()
 	}
 
+	ctx, cancel := context.WithCancel(config.Ctx)
+
 	tlsInfo := transport.TLSInfo{
 		CertFile:           config.CertFile,
 		KeyFile:            config.KeyFile,
@@ -180,7 +184,7 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	}
 
 	cli, err := clientv3.New(clientv3.Config{
-		Context:            config.Ctx,
+		Context:            ctx,
 		Endpoints:          []string{config.Host},
 		DialTimeout:        etcdConnectionTimeout,
 		Username:           config.User,
@@ -198,9 +202,11 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 	cli.Lease = namespace.NewLease(cli.Lease, config.Namespace)
 
 	backend := &db{
+		ctx:     ctx,
+		cancel:  cancel,
 		cli:     cli,
 		config:  config,
-		txQueue: NewCommitQueue(config.Ctx),
+		txQueue: NewCommitQueue(ctx),
 	}
 
 	if config.CollectCommitStats {
@@ -213,7 +219,7 @@ func newEtcdBackend(config BackendConfig) (*db, error) {
 // getSTMOptions creats all STM options based on the backend config.
 func (db *db) getSTMOptions() []STMOptionFunc {
 	opts := []STMOptionFunc{
-		WithAbortContext(db.config.Ctx),
+		WithAbortContext(db.ctx),
 	}
 
 	if db.config.CollectCommitStats {
@@ -286,7 +292,7 @@ func (db *db) BeginReadTx() (walletdb.ReadTx, error) {
 // start a read-only transaction to perform all operations.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Copy(w io.Writer) error {
-	ctx, cancel := context.WithTimeout(db.config.Ctx, etcdLongTimeout)
+	ctx, cancel := context.WithTimeout(db.ctx, etcdLongTimeout)
 	defer cancel()
 
 	readCloser, err := db.cli.Snapshot(ctx)
@@ -302,5 +308,8 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
-	return db.cli.Close()
+	err := db.cli.Close()
+	db.cancel()
+	db.txQueue.Wait()
+	return err
 }
