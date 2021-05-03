@@ -99,8 +99,9 @@ var openChannelCommand = cli.Command{
 		cli.BoolFlag{
 			Name: "fundmax",
 			Usage: "(optional) if set, the wallet will attempt to " +
-				"commit the maximum possible local amount to the channel. " +
-				"Should not be set together with local_amt",
+				"commit the maximum possible local amount to " +
+				"the channel. Should not be set together with " +
+				"local_amt",
 		},
 		cli.IntFlag{
 			Name:  "local_amt",
@@ -299,10 +300,14 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode local amt: %v", err)
 		}
 		args = args.Tail()
-	default:
+	case !ctx.Bool("fundmax"):
 		return fmt.Errorf("local amt argument missing")
 	}
 
+	// Note:
+	// The fundmax flag is NOT allowed to be combiend with local_amt above.
+	// It is allowed to be combined with push_amt, but only if explicitly
+	// set.
 	if ctx.Bool("fundmax") && req.LocalFundingAmount != 0 {
 		return fmt.Errorf("local amount cannot be set if attempting to " +
 			"commit the maximum amount out of the wallet")

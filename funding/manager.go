@@ -229,11 +229,11 @@ type InitFundingMsg struct {
 	// peer.
 	MaxLocalCsv uint16
 
-	// FundMax denotes the attempt to commit all the coins under
-	// control of the internal wallet to the channel, while treating
-	// the localFundingAmt field as the acceptable minimum amount to
-	// commit to.
-	FundMax bool
+	// FundUpToMax is the maximum amount to try to commit to. If set, the
+	// LocalFundingAmt field denotes the acceptable minimum amount to
+	// commit to, while trying to commit as many coins as possible up to
+	// this value.
+	FundUpToMaxAmt btcutil.Amount
 
 	// ChanFunder is an optional channel funder that allows the caller to
 	// control exactly how the channel funding is carried out. If not
@@ -3177,14 +3177,6 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		return
 	}
 
-	// If the caller specified to spend all funds, then we
-	// define the maximum allowed funding amount to be the
-	// current limit of the maximum funding amount.
-	var fundUpToMaxAmt btcutil.Amount
-	if msg.FundMax {
-		fundUpToMaxAmt = MaxBtcFundingAmount
-	}
-
 	// Initialize a funding reservation with the local wallet. If the
 	// wallet doesn't have enough funds to commit to this channel, then the
 	// request will fail, and be aborted.
@@ -3222,7 +3214,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		SubtractFees:     msg.SubtractFees,
 		LocalFundingAmt:  localAmt,
 		RemoteFundingAmt: 0,
-		FundUpToMaxAmt:   fundUpToMaxAmt,
+		FundUpToMaxAmt:   msg.FundUpToMaxAmt,
 		CommitFeePerKw:   commitFeePerKw,
 		FundingFeePerKw:  msg.FundingFeePerKw,
 		PushMSat:         msg.PushAmt,

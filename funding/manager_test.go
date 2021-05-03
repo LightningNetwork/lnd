@@ -642,7 +642,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	*wire.OutPoint, *wire.MsgTx) {
 
 	publ := fundChannel(
-		t, alice, bob, localFundingAmt, pushAmt, false, false, numConfs,
+		t, alice, bob, localFundingAmt, pushAmt, false, 0, numConfs,
 		updateChan, announceChan,
 	)
 	fundingOutPoint := &wire.OutPoint{
@@ -655,7 +655,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 // fundChannel takes the funding process to the point where the funding
 // transaction is confirmed on-chain. Returns the funding tx.
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
-	pushAmt btcutil.Amount, subtractFees, fundMax bool, numConfs uint32, // nolint:unparam
+	pushAmt btcutil.Amount, subtractFees bool, fundUpToMaxAmt btcutil.Amount, numConfs uint32, // nolint:unparam
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) *wire.MsgTx {
 
 	// Create a funding request and start the workflow.
@@ -665,7 +665,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
 		SubtractFees:    subtractFees,
-		FundMax:         fundMax,
+		FundUpToMaxAmt:  fundUpToMaxAmt,
 		LocalFundingAmt: localFundingAmt,
 		PushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
 		FundingFeePerKw: 1000,
@@ -3242,7 +3242,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		// Initiate a fund channel, and inspect the funding tx.
 		pushAmt := btcutil.Amount(0)
 		fundingTx := fundChannel(
-			t, alice, bob, test.spendAmt, pushAmt, true, false, 1,
+			t, alice, bob, test.spendAmt, pushAmt, true, 0, 1,
 			updateChan, true,
 		)
 
@@ -3279,8 +3279,9 @@ func TestFundingManagerFundMax(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		coins  []*lnwallet.Utxo
-		change bool
+		coins          []*lnwallet.Utxo
+		fundUpToMaxAmt btcutil.Amount
+		change         bool
 	}{
 		{
 			// We will spend all the funds in the wallet, and
@@ -3294,7 +3295,8 @@ func TestFundingManagerFundMax(t *testing.T) {
 					Index: 0,
 				},
 			}},
-			change: false,
+			fundUpToMaxAmt: MaxBtcFundingAmount,
+			change:         false,
 		},
 		{
 			// We spend less than the funds in the wallet,
@@ -3308,7 +3310,24 @@ func TestFundingManagerFundMax(t *testing.T) {
 					Index: 0,
 				},
 			}},
-			change: true,
+			fundUpToMaxAmt: MaxBtcFundingAmount,
+			change:         true,
+		},
+		{
+			// We spend less than the funds in the wallet when
+			// setting a smaller channel size, so a change output
+			// should be created.
+			coins: []*lnwallet.Utxo{{
+				AddressType: lnwallet.WitnessPubKey,
+				Value:       MaxBtcFundingAmount,
+				PkScript:    mock.CoinPkScript,
+				OutPoint: wire.OutPoint{
+					Hash:  chainhash.Hash{},
+					Index: 0,
+				},
+			}},
+			fundUpToMaxAmt: MaxBtcFundingAmount / 2,
+			change:         true,
 		},
 	}
 
@@ -3330,8 +3349,8 @@ func TestFundingManagerFundMax(t *testing.T) {
 		// Initiate a fund channel, and inspect the funding tx.
 		pushAmt := btcutil.Amount(0)
 		fundingTx := fundChannel(
-			t, alice, bob, MinChanFundingSize, pushAmt, false, true,
-			1, updateChan, true,
+			t, alice, bob, MinChanFundingSize, pushAmt, false,
+			test.fundUpToMaxAmt, 1, updateChan, true,
 		)
 
 		// Check whether the expected change output is present.
