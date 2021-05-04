@@ -248,3 +248,56 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 
 	return selectedUtxos, outputAmt, changeAmt, nil
 }
+
+// CoinSelectUpToAmount attempts to select coins such that we'll spend up
+// to amt in total before fees, or all of the coins if not sufficient amount
+// available.
+func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, maxAmt,
+	dustLimit btcutil.Amount, coins []Coin) ([]Coin, btcutil.Amount,
+	btcutil.Amount, error) {
+
+	// Get balance from coins.
+	var balance btcutil.Amount
+	for _, coin := range coins {
+		balance += btcutil.Amount(coin.Value)
+	}
+
+	// First we try to select coins up to the specified maxAmt.
+	outputAmt := maxAmt
+	selectedCoins, changeAmt, err := CoinSelect(
+		feeRate, maxAmt, dustLimit, coins,
+	)
+	if err != nil {
+
+		switch err.(type) {
+		// Without sufficient funds we spend it all by subtracting
+		// the fee directly from the output amount.
+		case *ErrInsufficientFunds:
+			selectedCoins, outputAmt, changeAmt, err = CoinSelectSubtractFees(
+				feeRate, balance, dustLimit, coins,
+			)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+
+		default:
+			return nil, 0, 0, err
+		}
+	}
+
+	// Sanity check: Always make sure the output amount is below the
+	// specified max amount.
+	switch d := outputAmt - maxAmt; {
+	case d > dustLimit:
+		return nil, 0, 0, fmt.Errorf(
+			"non-negative difference in requested maximum funding "+
+				"amount %v and obtained amount %v", maxAmt,
+			outputAmt,
+		)
+
+	case d > 0:
+		outputAmt = maxAmt
+	}
+
+	return selectedCoins, outputAmt, changeAmt, nil
+}

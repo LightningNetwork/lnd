@@ -4950,6 +4950,11 @@
           "type": "integer",
           "format": "int64",
           "description": "Max local csv is the maximum csv delay we will allow for our own commitment\ntransaction."
+        },
+        "fund_max": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "If set, then lnd will attempt to commit all the coins under control of\nthe internal wallet to open the channel, and the LocalFundingAmount\nfield must be zero and is ignored."
         }
       }
     },

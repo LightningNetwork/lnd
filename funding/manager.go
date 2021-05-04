@@ -229,6 +229,12 @@ type InitFundingMsg struct {
 	// peer.
 	MaxLocalCsv uint16
 
+	// FundUpToMax is the maximum amount to try to commit to. If set, the
+	// LocalFundingAmt field denotes the acceptable minimum amount to
+	// commit to, while trying to commit as many coins as possible up to
+	// this value.
+	FundUpToMaxAmt btcutil.Amount
+
 	// ChanFunder is an optional channel funder that allows the caller to
 	// control exactly how the channel funding is carried out. If not
 	// specified, then the default chanfunding.WalletAssembler will be
@@ -3208,6 +3214,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		SubtractFees:     msg.SubtractFees,
 		LocalFundingAmt:  localAmt,
 		RemoteFundingAmt: 0,
+		FundUpToMaxAmt:   msg.FundUpToMaxAmt,
 		CommitFeePerKw:   commitFeePerKw,
 		FundingFeePerKw:  msg.FundingFeePerKw,
 		PushMSat:         msg.PushAmt,

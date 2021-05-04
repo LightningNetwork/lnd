@@ -274,6 +274,24 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		case r.LocalAmt == 0:
 			break
 
+		// In case this request uses funding up to some maximum amount,
+		// we will call the specialized method for that.
+		case r.FundUpToMaxAmt != 0:
+			dustLimit := w.cfg.DustLimit
+			selectedCoins, localContributionAmt, changeAmt, err = CoinSelectUpToAmount(
+				r.FeeRate, r.FundUpToMaxAmt, dustLimit, coins,
+			)
+			if err != nil {
+				return err
+			}
+
+			// In case the selected amount is lower than the amount defined
+			// as the minimum with LocalAmt, we must return an error.
+			if localContributionAmt < r.LocalAmt {
+				return fmt.Errorf("available funds(%v) below the "+
+					"minimum amount(%v)", localContributionAmt, r.LocalAmt)
+			}
+
 		// In case this request want the fees subtracted from the local
 		// amount, we'll call the specialized method for that. This
 		// ensures that we won't deduct more that the specified balance

@@ -221,6 +221,16 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: output amount(<amt>) after subtracting fees(<amt>) below dust limit(<amt>)
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): output amount(<amt>) after subtracting fees(<amt>) below dust limit(<amt>)
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: available funds(<amt>) below the minimum amount(<amt>)
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): available funds(<amt>) below the minimum amount(<amt>)
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: funder balance too small (<amt>) with fee=<amt> sat, minimum=<amt> sat required
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): funder balance too small (<amt>) with fee=<amt> sat, minimum=<amt> sat required
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: funding amount is too large, the max channel size is: <amt>
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of <amt> exceeds maximum chan size of <amt>
+<time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=chan size of <amt> exceeds maximum chan size of <amt>
+<time> [ERR] RPCS: unable to open channel to NodeKey(<hex>): received funding error from <hex>: chan_id=<hex>, err=chan size of <amt> exceeds maximum chan size of <amt>
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/HtlcInterceptor]: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: [/routerrpc.Router/SendPayment]: routerrpc server shutting down
