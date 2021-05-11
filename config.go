@@ -1278,21 +1278,25 @@ func ValidateConfig(cfg Config, usageMessage string,
 		return nil, err
 	}
 
-	// For each of the RPC listeners (REST+gRPC), we'll ensure that users
-	// have specified a safe combo for authentication. If not, we'll bail
-	// out with an error. Since we don't allow disabling TLS for gRPC
-	// connections we pass in tlsActive=true.
-	err = lncfg.EnforceSafeAuthentication(
-		cfg.RPCListeners, !cfg.NoMacaroons, true,
-	)
-	if err != nil {
-		return nil, err
+	// Only Enforce Safe Authentication for mainnet
+	if cfg.ActiveNetParams.Name == "mainnet" {
+		// For each of the RPC listeners (REST+gRPC), we'll ensure that users
+		// have specified a safe combo for authentication. If not, we'll bail
+		// out with an error. Since we don't allow disabling TLS for gRPC
+		// connections we pass in tlsActive=true.
+		err = lncfg.EnforceSafeAuthentication(
+			cfg.RPCListeners, !cfg.NoMacaroons, true,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if cfg.DisableRest {
 		ltndLog.Infof("REST API is disabled!")
 		cfg.RESTListeners = nil
-	} else {
+	} else if cfg.ActiveNetParams.Name == "mainnet" {
+		// Only Enforce Safe Authentication for mainnet
 		err = lncfg.EnforceSafeAuthentication(
 			cfg.RESTListeners, !cfg.NoMacaroons, !cfg.DisableRestTLS,
 		)
