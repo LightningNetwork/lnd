@@ -515,6 +515,14 @@ service Lightning {
     */
     rpc ListPermissions (ListPermissionsRequest)
         returns (ListPermissionsResponse);
+
+    /*
+    CheckMacaroonPermissions checks whether a request follows the constraints
+    imposed on the macaroon and that the macaroon is authorized to follow the
+    provided permissions.
+    */
+    rpc CheckMacaroonPermissions (CheckMacPermRequest)
+        returns (CheckMacPermResponse);
 }
 
 message Utxo {
@@ -3884,4 +3892,14 @@ message MacaroonId {
 message Op {
     string entity = 1;
     repeated string actions = 2;
+}
+
+message CheckMacPermRequest {
+    bytes macaroon = 1;
+    repeated MacaroonPermission permissions = 2;
+    string fullMethod = 3;
+}
+
+message CheckMacPermResponse {
+    bool valid = 1;
 }

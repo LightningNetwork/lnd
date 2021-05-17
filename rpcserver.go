@@ -501,6 +501,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/CheckMacaroonPermissions": {{
+			Entity: "macaroon",
+			Action: "read",
+		}},
 		"/lnrpc.Lightning/SubscribePeerEvents": {{
 			Entity: "peers",
 			Action: "read",
@@ -6740,6 +6744,35 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 
 	return &lnrpc.ListPermissionsResponse{
 		MethodPermissions: permissionMap,
+	}, nil
+}
+
+// CheckMacaroonPermissions checks the caveats and permissions of a macaroon.
+func (r *rpcServer) CheckMacaroonPermissions(ctx context.Context,
+	req *lnrpc.CheckMacPermRequest) (*lnrpc.CheckMacPermResponse, error) {
+
+	// Turn grpc macaroon permission into bakery.Op for the server to
+	// process.
+	permissions := make([]bakery.Op, len(req.Permissions))
+	for _, perm := range req.Permissions {
+		newPerm := bakery.Op{
+			Entity: perm.Entity,
+			Action: perm.Action,
+		}
+
+		permissions = append(permissions, newPerm)
+	}
+
+	err := r.macService.CheckMacAuth(
+		ctx, hex.EncodeToString(req.Macaroon), permissions,
+		req.FullMethod,
+	)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	return &lnrpc.CheckMacPermResponse{
+		Valid: true,
 	}, nil
 }
 
