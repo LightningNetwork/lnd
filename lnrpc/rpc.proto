@@ -3682,6 +3682,12 @@ message BakeMacaroonRequest {
 
     // The root key ID used to create the macaroon, must be a positive integer.
     uint64 root_key_id = 2;
+
+    /*
+    Informs the RPC on whether to allow external permissions that LND is not
+    aware of.
+    */
+    bool allow_external_permissions = 3;
 }
 message BakeMacaroonResponse {
     // The hex encoded macaroon, serialized in binary format.
