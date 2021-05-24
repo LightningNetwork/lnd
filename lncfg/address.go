@@ -245,12 +245,15 @@ func ParseAddressString(strAddress string, defaultPort string,
 		// identifiable error.
 		addr, err := tcpResolver("tcp", addrWithPort)
 		if err != nil {
-			torErrStr := "tor host is unreachable"
-			if strings.Contains(err.Error(), torErrStr) {
-				return net.ResolveTCPAddr("tcp", addrWithPort)
-			}
+			switch err.Error() {
+			case "tor host is unreachable",
+				"tor general error",
+				"tor general failure":
 
-			return nil, err
+				return net.ResolveTCPAddr("tcp", addrWithPort)
+			default:
+				return nil, err
+			}
 		}
 
 		return addr, nil
