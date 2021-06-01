@@ -16,7 +16,7 @@ type TestVector struct {
 	entropy          [EntropySize]byte
 	salt             [saltSize]byte
 	password         []byte
-	expectedMnemonic [NummnemonicWords]string
+	expectedMnemonic [NumMnemonicWords]string
 	expectedBirthday uint16
 }
 
@@ -37,7 +37,7 @@ var (
 			entropy:  testEntropy,
 			salt:     testSalt,
 			password: []byte{},
-			expectedMnemonic: [NummnemonicWords]string{
+			expectedMnemonic: [NumMnemonicWords]string{
 				"ability", "liquid", "travel", "stem", "barely", "drastic",
 				"pact", "cupboard", "apple", "thrive", "morning", "oak",
 				"feature", "tissue", "couch", "old", "math", "inform",
@@ -51,7 +51,7 @@ var (
 			entropy:  testEntropy,
 			salt:     testSalt,
 			password: []byte("!very_safe_55345_password*"),
-			expectedMnemonic: [NummnemonicWords]string{
+			expectedMnemonic: [NumMnemonicWords]string{
 				"able", "tree", "stool", "crush", "transfer", "cloud",
 				"cross", "three", "profit", "outside", "hen", "citizen",
 				"plate", "ride", "require", "leg", "siren", "drum",

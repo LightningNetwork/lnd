@@ -5,20 +5,20 @@ import (
 )
 
 var (
-	// reverseWordMap maps a word to its position within the default word list.
-	reverseWordMap map[string]int
+	// ReverseWordMap maps a word to its position within the default word list.
+	ReverseWordMap map[string]int
 )
 
 func init() {
-	reverseWordMap = make(map[string]int)
-	for i, v := range defaultWordList {
-		reverseWordMap[v] = i
+	ReverseWordMap = make(map[string]int)
+	for i, v := range DefaultWordList {
+		ReverseWordMap[v] = i
 	}
 }
 
-// defaultWordList is a slice of the current default word list that's used to
+// DefaultWordList is a slice of the current default word list that's used to
 // encode the enciphered seed into a human readable set of words.
-var defaultWordList = strings.Split(englishWordList, "\n")
+var DefaultWordList = strings.Split(englishWordList, "\n")
 
 // englishWordList is an English wordlist that's used as part of version 0 of
 // the cipherseed scheme. This is the *same* word list that's recommend for use

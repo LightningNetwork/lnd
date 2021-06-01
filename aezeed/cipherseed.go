@@ -67,9 +67,9 @@ const (
 	// the seed.
 	EntropySize = 16
 
-	// NummnemonicWords is the number of words that an encoded cipher seed
+	// NumMnemonicWords is the number of words that an encoded cipher seed
 	// will result in.
-	NummnemonicWords = 24
+	NumMnemonicWords = 24
 
 	// saltSize is the size of the salt we'll generate to use with scrypt
 	// to generate a key for use within aez from the user's passphrase. The
@@ -90,9 +90,9 @@ const (
 	// aez.
 	keyLen = 32
 
-	// bitsPerWord is the number of bits each word in the wordlist encodes.
+	// BitsPerWord is the number of bits each word in the wordlist encodes.
 	// We encode our mnemonic using 24 words, so 264 bits (33 bytes).
-	bitsPerWord = 11
+	BitsPerWord = 11
 
 	// saltOffset is the index within an enciphered cipherseed that marks
 	// the start of the salt.
@@ -337,7 +337,7 @@ func (c *CipherSeed) encipher(pass []byte) ([EncipheredCipherSeedSize]byte, erro
 // cipherTextToMnemonic converts the aez ciphertext appended with the salt to a
 // 24-word mnemonic pass phrase.
 func cipherTextToMnemonic(cipherText [EncipheredCipherSeedSize]byte) (Mnemonic, error) {
-	var words [NummnemonicWords]string
+	var words [NumMnemonicWords]string
 
 	// First, we'll convert the ciphertext itself into a bitstream for easy
 	// manipulation.
@@ -345,13 +345,13 @@ func cipherTextToMnemonic(cipherText [EncipheredCipherSeedSize]byte) (Mnemonic, 
 
 	// With our bitstream obtained, we'll read 11 bits at a time, then use
 	// that to index into our word list to obtain the next word.
-	for i := 0; i < NummnemonicWords; i++ {
-		index, err := cipherBits.ReadBits(bitsPerWord)
+	for i := 0; i < NumMnemonicWords; i++ {
+		index, err := cipherBits.ReadBits(BitsPerWord)
 		if err != nil {
 			return Mnemonic{}, err
 		}
 
-		words[i] = defaultWordList[index]
+		words[i] = DefaultWordList[index]
 	}
 
 	return words, nil
@@ -391,7 +391,7 @@ func (c *CipherSeed) BirthdayTime() time.Time {
 // Additionally, we also encode the salt used with scrypt to derive the key
 // that the cipher text is encrypted with, and the version which tells us how
 // to decipher the seed.
-type Mnemonic [NummnemonicWords]string
+type Mnemonic [NumMnemonicWords]string
 
 // mnemonicToCipherText converts a 24-word mnemonic phrase into a 33 byte
 // cipher text.
@@ -408,11 +408,11 @@ func mnemonicToCipherText(mnemonic *Mnemonic) [EncipheredCipherSeedSize]byte {
 	for _, word := range mnemonic {
 		// Using the reverse word map, we'll locate the index of this
 		// word within the word list.
-		index := uint64(reverseWordMap[word])
+		index := uint64(ReverseWordMap[word])
 
 		// With the index located, we'll now write this out to the
 		// bitstream, appending to what's already there.
-		cipherBits.WriteBits(index, bitsPerWord)
+		cipherBits.WriteBits(index, BitsPerWord)
 	}
 
 	copy(cipherText[:], cipherBits.Bytes())
@@ -505,8 +505,8 @@ func (m *Mnemonic) Decipher(pass []byte) ([DecipheredCipherSeedSize]byte, error)
 	// Before we attempt to map the mnemonic back to the original
 	// ciphertext, we'll ensure that all the word are actually a part of
 	// the current default word list.
-	wordDict := make(map[string]struct{}, len(defaultWordList))
-	for _, word := range defaultWordList {
+	wordDict := make(map[string]struct{}, len(DefaultWordList))
+	for _, word := range DefaultWordList {
 		wordDict[word] = struct{}{}
 	}
 
