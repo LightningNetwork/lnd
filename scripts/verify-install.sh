@@ -229,7 +229,7 @@ function check_hash() {
     fi
   fi
 
-  if ! grep -q "^$SUM" "$TEMP_DIR/$MANIFEST"; then
+  if ! grep "^$SUM" "$TEMP_DIR/$MANIFEST" | grep -q "$VERSION"; then
     echo "ERROR: Hash $SUM for $2 not found in $MANIFEST: "
     cat "$TEMP_DIR/$MANIFEST"
     echo "  The expected release binaries have been verified with the developer "
