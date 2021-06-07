@@ -16,13 +16,13 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	*WalletKit, lnrpc.MacaroonPerms, error) {
 
 	// We'll attempt to look up the config that we expect, according to our
-	// subServerName name. If we can't find this, then we'll exit with an
+	// SubServerName name. If we can't find this, then we'll exit with an
 	// error, as we're unable to properly initialize ourselves without this
 	// config.
-	walletKitServerConf, ok := configRegistry.FetchConfig(subServerName)
+	walletKitServerConf, ok := configRegistry.FetchConfig(SubServerName)
 	if !ok {
 		return nil, nil, fmt.Errorf("unable to find config for "+
-			"subserver type %s", subServerName)
+			"subserver type %s", SubServerName)
 	}
 
 	// Now that we've found an object mapping to our service name, we'll
@@ -30,7 +30,7 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	config, ok := walletKitServerConf.(*Config)
 	if !ok {
 		return nil, nil, fmt.Errorf("wrong type of config for "+
-			"subserver %s, expected %T got %T", subServerName,
+			"subserver %s, expected %T got %T", SubServerName,
 			&Config{}, walletKitServerConf)
 	}
 
@@ -68,7 +68,7 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 
 func init() {
 	subServer := &lnrpc.SubServerDriver{
-		SubServerName: subServerName,
+		SubServerName: SubServerName,
 		NewGrpcHandler: func() lnrpc.GrpcHandler {
 			return &ServerShell{}
 		},
@@ -78,6 +78,6 @@ func init() {
 	// sub-RPC server within the global lnrpc package namespace.
 	if err := lnrpc.RegisterSubServer(subServer); err != nil {
 		panic(fmt.Sprintf("failed to register sub server driver '%s': %v",
-			subServerName, err))
+			SubServerName, err))
 	}
 }
