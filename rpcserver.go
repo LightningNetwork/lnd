@@ -2360,6 +2360,46 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 	return chanGraph.DeleteChannelEdges(false, chanID)
 }
 
+// abandonChan removes a channel from the database, graph and contract court.
+func (r *rpcServer) abandonChan(chanPoint *wire.OutPoint,
+	bestHeight uint32) error {
+
+	// Abandoning a channel is a three step process: remove from the open
+	// channel state, remove from the graph, remove from the contract
+	// court. Between any step it's possible that the users restarts the
+	// process all over again. As a result, each of the steps below are
+	// intended to be idempotent.
+	err := r.server.remoteChanDB.AbandonChannel(chanPoint, bestHeight)
+	if err != nil {
+		return err
+	}
+	err = abandonChanFromGraph(
+		r.server.localChanDB.ChannelGraph(), chanPoint,
+	)
+	if err != nil {
+		return err
+	}
+	err = r.server.chainArb.ResolveContract(*chanPoint)
+	if err != nil {
+		return err
+	}
+
+	// If this channel was in the process of being closed, but didn't fully
+	// close, then it's possible that the nursery is hanging on to some
+	// state. To err on the side of caution, we'll now attempt to wipe any
+	// state for this channel from the nursery.
+	err = r.server.utxoNursery.cfg.Store.RemoveChannel(chanPoint)
+	if err != nil && err != ErrContractNotFound {
+		return err
+	}
+
+	// Finally, notify the backup listeners that the channel can be removed
+	// from any channel backups.
+	r.server.channelNotifier.NotifyClosedChannelEvent(*chanPoint)
+
+	return nil
+}
+
 // AbandonChannel removes all channel state from the database except for a
 // close summary. This method can be used to get rid of permanently unusable
 // channels due to bugs fixed in newer versions of lnd.
@@ -2431,38 +2471,10 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		return nil, err
 	}
 
-	// Abandoning a channel is a three step process: remove from the open
-	// channel state, remove from the graph, remove from the contract
-	// court. Between any step it's possible that the users restarts the
-	// process all over again. As a result, each of the steps below are
-	// intended to be idempotent.
-	err = r.server.remoteChanDB.AbandonChannel(chanPoint, uint32(bestHeight))
-	if err != nil {
+	// Remove the channel from the graph, database and contract court.
+	if err := r.abandonChan(chanPoint, uint32(bestHeight)); err != nil {
 		return nil, err
 	}
-	err = abandonChanFromGraph(
-		r.server.localChanDB.ChannelGraph(), chanPoint,
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = r.server.chainArb.ResolveContract(*chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	// If this channel was in the process of being closed, but didn't fully
-	// close, then it's possible that the nursery is hanging on to some
-	// state. To err on the side of caution, we'll now attempt to wipe any
-	// state for this channel from the nursery.
-	err = r.server.utxoNursery.cfg.Store.RemoveChannel(chanPoint)
-	if err != nil && err != ErrContractNotFound {
-		return nil, err
-	}
-
-	// Finally, notify the backup listeners that the channel can be removed
-	// from any channel backups.
-	r.server.channelNotifier.NotifyClosedChannelEvent(*chanPoint)
 
 	return &lnrpc.AbandonChannelResponse{}, nil
 }
