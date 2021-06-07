@@ -139,6 +139,11 @@ type PsbtIntent struct {
 	// NOTE: This channel must always be buffered.
 	PsbtReady chan error
 
+	// shouldPublish specifies if the intent assumes its assembler should
+	// publish the transaction once the channel funding has completed. If
+	// this is set to false then the finalize step can be skipped.
+	shouldPublish bool
+
 	// signalPsbtReady is a Once guard to make sure the PsbtReady channel is
 	// only closed exactly once.
 	signalPsbtReady sync.Once
@@ -449,6 +454,12 @@ func (i *PsbtIntent) Outputs() []*wire.TxOut {
 	}
 }
 
+// ShouldPublishFundingTX returns true if the intent assumes that its assembler
+// should publish the funding TX once the funding negotiation is complete.
+func (i *PsbtIntent) ShouldPublishFundingTX() bool {
+	return i.shouldPublish
+}
+
 // PsbtAssembler is a type of chanfunding.Assembler wherein the funding
 // transaction is constructed outside of lnd by using partially signed bitcoin
 // transactions (PSBT).
@@ -500,10 +511,11 @@ func (p *PsbtAssembler) ProvisionChannel(req *Request) (Intent, error) {
 		ShimIntent: ShimIntent{
 			localFundingAmt: p.fundingAmt,
 		},
-		State:     PsbtShimRegistered,
-		BasePsbt:  p.basePsbt,
-		PsbtReady: make(chan error, 1),
-		netParams: p.netParams,
+		State:         PsbtShimRegistered,
+		BasePsbt:      p.basePsbt,
+		PsbtReady:     make(chan error, 1),
+		shouldPublish: p.shouldPublish,
+		netParams:     p.netParams,
 	}
 
 	// A simple sanity check to ensure the provisioned request matches the
