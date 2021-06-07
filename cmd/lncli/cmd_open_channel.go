@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -603,6 +604,158 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			return printChanOpen(update)
 		}
 	}
+}
+
+var batchOpenChannelCommand = cli.Command{
+	Name:     "batchopenchannel",
+	Category: "Channels",
+	Usage: "Open multiple channels to existing peers in a single " +
+		"transaction.",
+	Description: `
+	Attempt to open one or more new channels to an existing peer with the
+	given node-keys.
+
+	Example:
+	lncli batchopenchannel --sat_per_vbyte=5 '[{
+		"node_pubkey": "02abcdef...",
+		"local_funding_amount": 500000,
+		"private": true,
+		"close_address": "bc1qxxx..."
+	}, {
+		"node_pubkey": "03fedcba...",
+		"local_funding_amount": 200000,
+		"remote_csv_delay": 288
+	}]'
+
+	All nodes listed must already be connected peers, otherwise funding will
+	fail.
+
+	The channel will be initialized with local-amt satoshis local and
+	push-amt satoshis for the remote node. Note that specifying push-amt
+	means you give that amount to the remote node as part of the channel
+	opening. Once the channel is open, a channelPoint (txid:vout) of the
+	funding output is returned.
+
+	If the remote peer supports the option upfront shutdown feature bit
+	(query listpeers to see their supported feature bits), an address to
+	enforce	payout of funds on cooperative close can optionally be provided.
+	Note that if you set this value, you will not be able to cooperatively
+	close out to another address.
+
+	One can manually set the fee to be used for the funding transaction via
+	either the --conf_target or --sat_per_vbyte arguments. This is optional.
+`,
+	ArgsUsage: "channels-json",
+	Flags: []cli.Flag{
+		cli.Int64Flag{
+			Name: "conf_target",
+			Usage: "(optional) the number of blocks that the " +
+				"transaction *should* confirm in, will be " +
+				"used for fee estimation",
+		},
+		cli.Int64Flag{
+			Name: "sat_per_vbyte",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/vByte that should be used when crafting " +
+				"the transaction",
+		},
+		cli.Uint64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of " +
+				"confirmations each one of your outputs used " +
+				"for the funding transaction must satisfy",
+			Value: defaultUtxoMinConf,
+		},
+		cli.StringFlag{
+			Name: "label",
+			Usage: "(optional) a label to attach to the batch " +
+				"transaction when storing it to the local " +
+				"wallet after publishing it",
+		},
+	},
+	Action: actionDecorator(batchOpenChannel),
+}
+
+type batchChannelJSON struct {
+	NodePubkey         string `json:"node_pubkey,omitempty"`
+	LocalFundingAmount int64  `json:"local_funding_amount,omitempty"`
+	PushSat            int64  `json:"push_sat,omitempty"`
+	Private            bool   `json:"private,omitempty"`
+	MinHtlcMsat        int64  `json:"min_htlc_msat,omitempty"`
+	RemoteCsvDelay     uint32 `json:"remote_csv_delay,omitempty"`
+	CloseAddress       string `json:"close_address,omitempty"`
+}
+
+func batchOpenChannel(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	args := ctx.Args()
+
+	// Show command help if no arguments provided
+	if ctx.NArg() == 0 {
+		_ = cli.ShowCommandHelp(ctx, "batchopenchannel")
+		return nil
+	}
+
+	minConfs := int32(ctx.Uint64("min_confs"))
+	req := &lnrpc.BatchOpenChannelRequest{
+		TargetConf:       int32(ctx.Int64("conf_target")),
+		SatPerVbyte:      int64(ctx.Uint64("sat_per_vbyte")),
+		MinConfs:         minConfs,
+		SpendUnconfirmed: minConfs == 0,
+		Label:            ctx.String("label"),
+	}
+
+	// Let's try and parse the JSON part of the CLI now. Fortunately we can
+	// parse it directly into the RPC struct if we use the correct
+	// marshaler that keeps the original snake case.
+	var jsonChannels []*batchChannelJSON
+	if err := json.Unmarshal([]byte(args.First()), &jsonChannels); err != nil {
+		return fmt.Errorf("error parsing channels JSON: %v", err)
+	}
+
+	req.Channels = make([]*lnrpc.BatchOpenChannel, len(jsonChannels))
+	for idx, jsonChannel := range jsonChannels {
+		pubKeyBytes, err := hex.DecodeString(jsonChannel.NodePubkey)
+		if err != nil {
+			return fmt.Errorf("error parsing node pubkey hex: %v",
+				err)
+		}
+
+		req.Channels[idx] = &lnrpc.BatchOpenChannel{
+			NodePubkey:         pubKeyBytes,
+			LocalFundingAmount: jsonChannel.LocalFundingAmount,
+			PushSat:            jsonChannel.PushSat,
+			Private:            jsonChannel.Private,
+			MinHtlcMsat:        jsonChannel.MinHtlcMsat,
+			RemoteCsvDelay:     jsonChannel.RemoteCsvDelay,
+			CloseAddress:       jsonChannel.CloseAddress,
+		}
+	}
+
+	resp, err := client.BatchOpenChannel(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	for _, pending := range resp.PendingChannels {
+		txid, err := chainhash.NewHash(pending.Txid)
+		if err != nil {
+			return err
+		}
+
+		printJSON(struct {
+			FundingTxid        string `json:"funding_txid"`
+			FundingOutputIndex uint32 `json:"funding_output_index"`
+		}{
+			FundingTxid:        txid.String(),
+			FundingOutputIndex: pending.OutputIndex,
+		})
+	}
+
+	return nil
 }
 
 // printChanOpen prints the channel point of the channel open message.
