@@ -2092,6 +2092,20 @@ message FundingPsbtVerify {
 
     // The pending channel ID of the channel to get the PSBT for.
     bytes pending_chan_id = 2;
+
+    /*
+    Can only be used if the no_publish flag was set to true in the OpenChannel
+    call meaning that the caller is solely responsible for publishing the final
+    funding transaction. If skip_finalize is set to true then lnd will not wait
+    for a FundingPsbtFinalize state step and instead assumes that a transaction
+    with the same TXID as the passed in PSBT will eventually confirm.
+    IT IS ABSOLUTELY IMPERATIVE that the TXID of the transaction that is
+    eventually published does have the _same TXID_ as the verified PSBT. That
+    means no inputs or outputs can change, only signatures can be added. If the
+    TXID changes between this call and the publish step then the channel will
+    never be created and the funds will be in limbo.
+    */
+    bool skip_finalize = 3;
 }
 
 message FundingPsbtFinalize {

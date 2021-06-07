@@ -119,7 +119,7 @@ func TestPsbtIntent(t *testing.T) {
 	}
 
 	// Verify the dummy PSBT with the intent.
-	err = psbtIntent.Verify(pendingPsbt)
+	err = psbtIntent.Verify(pendingPsbt, false)
 	if err != nil {
 		t.Fatalf("error verifying pending PSBT: %v", err)
 	}
@@ -271,61 +271,68 @@ func TestPsbtVerify(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name        string
-		expectedErr string
-		doVerify    func(int64, *psbt.Packet, *PsbtIntent) error
+		name          string
+		expectedErr   string
+		shouldPublish bool
+		doVerify      func(int64, *psbt.Packet, *PsbtIntent) error
 	}{
 		{
-			name:        "nil packet",
-			expectedErr: "PSBT is nil",
+			name:          "nil packet",
+			expectedErr:   "PSBT is nil",
+			shouldPublish: true,
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
-				return i.Verify(nil)
+				return i.Verify(nil, false)
 			},
 		},
 		{
-			name: "wrong state",
+			name:          "wrong state",
+			shouldPublish: true,
 			expectedErr: "invalid state. got user_canceled " +
 				"expected output_known",
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
 				i.State = PsbtInitiatorCanceled
-				return i.Verify(p)
+				return i.Verify(p, false)
 			},
 		},
 		{
-			name:        "output not found, value wrong",
-			expectedErr: "funding output not found in PSBT",
+			name:          "output not found, value wrong",
+			shouldPublish: true,
+			expectedErr:   "funding output not found in PSBT",
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
 				p.UnsignedTx.TxOut[0].Value = 123
-				return i.Verify(p)
+				return i.Verify(p, false)
 			},
 		},
 		{
-			name:        "output not found, pk script wrong",
-			expectedErr: "funding output not found in PSBT",
+			name:          "output not found, pk script wrong",
+			shouldPublish: true,
+			expectedErr:   "funding output not found in PSBT",
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
 				p.UnsignedTx.TxOut[0].PkScript = []byte{1, 2, 3}
-				return i.Verify(p)
+				return i.Verify(p, false)
 			},
 		},
 		{
-			name:        "no inputs",
-			expectedErr: "PSBT has no inputs",
+			name:          "no inputs",
+			shouldPublish: true,
+			expectedErr:   "PSBT has no inputs",
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
-				return i.Verify(p)
+				return i.Verify(p, false)
 			},
 		},
 		{
-			name: "input(s) too small",
+			name:          "input(s) too small",
+			shouldPublish: true,
 			expectedErr: "input amount sum must be larger than " +
 				"output amount sum",
 			doVerify: func(amt int64, p *psbt.Packet,
@@ -337,11 +344,12 @@ func TestPsbtVerify(t *testing.T) {
 						Value: int64(chanCapacity),
 					},
 				}}
-				return i.Verify(p)
+				return i.Verify(p, false)
 			},
 		},
 		{
-			name: "missing witness-utxo field",
+			name:          "missing witness-utxo field",
+			shouldPublish: true,
 			expectedErr: "cannot use TX for channel funding, not " +
 				"all inputs are SegWit spends, risk of " +
 				"malleability: input 1 is non-SegWit spend " +
@@ -370,13 +378,66 @@ func TestPsbtVerify(t *testing.T) {
 								txOut,
 							},
 						},
-					}}
-				return i.Verify(p)
+					},
+				}
+				return i.Verify(p, false)
 			},
 		},
 		{
-			name:        "input correct",
-			expectedErr: "",
+			name:          "skip verify",
+			shouldPublish: false,
+			expectedErr:   "",
+			doVerify: func(amt int64, p *psbt.Packet,
+				i *PsbtIntent) error {
+
+				txOut := &wire.TxOut{
+					Value: int64(chanCapacity/2) + 1,
+				}
+				p.UnsignedTx.TxIn = []*wire.TxIn{
+					{},
+					{
+						PreviousOutPoint: wire.OutPoint{
+							Index: 0,
+						},
+					},
+				}
+				p.Inputs = []psbt.PInput{
+					{
+						WitnessUtxo: txOut,
+					},
+					{
+						WitnessUtxo: txOut,
+					},
+				}
+
+				if err := i.Verify(p, true); err != nil {
+					return err
+				}
+
+				if i.FinalTX != p.UnsignedTx {
+					return fmt.Errorf("expected final TX " +
+						"to be set")
+				}
+				if i.State != PsbtFinalized {
+					return fmt.Errorf("expected state to " +
+						"be finalized")
+				}
+
+				select {
+				case <-i.PsbtReady:
+
+				case <-time.After(50 * time.Millisecond):
+					return fmt.Errorf("expected PSBT " +
+						"ready to be signaled")
+				}
+
+				return nil
+			},
+		},
+		{
+			name:          "input correct",
+			shouldPublish: true,
+			expectedErr:   "",
 			doVerify: func(amt int64, p *psbt.Packet,
 				i *PsbtIntent) error {
 
@@ -398,7 +459,7 @@ func TestPsbtVerify(t *testing.T) {
 					{
 						WitnessUtxo: txOut,
 					}}
-				return i.Verify(p)
+				return i.Verify(p, false)
 			},
 		},
 	}
@@ -425,6 +486,7 @@ func TestPsbtVerify(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset the state from a previous test and create a new
 			// pending PSBT that we can manipulate.
+			psbtIntent.shouldPublish = tc.shouldPublish
 			psbtIntent.State = PsbtOutputKnown
 			_, amt, pendingPsbt, err := psbtIntent.FundingParams()
 			if err != nil {
@@ -613,7 +675,7 @@ func TestPsbtFinalize(t *testing.T) {
 				},
 				FinalScriptWitness: []byte{0x01, 0x00},
 			}}
-			err = psbtIntent.Verify(pendingPsbt)
+			err = psbtIntent.Verify(pendingPsbt, false)
 			if err != nil {
 				t.Fatalf("error verifying PSBT: %v", err)
 			}

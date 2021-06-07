@@ -213,7 +213,7 @@ func (i *PsbtIntent) FundingParams() (btcutil.Address, int64, *psbt.Packet,
 // Verify makes sure the PSBT that is given to the intent has an output that
 // sends to the channel funding multisig address with the correct amount. A
 // simple check that at least a single input has been specified is performed.
-func (i *PsbtIntent) Verify(packet *psbt.Packet) error {
+func (i *PsbtIntent) Verify(packet *psbt.Packet, skipFinalize bool) error {
 	if packet == nil {
 		return fmt.Errorf("PSBT is nil")
 	}
@@ -264,7 +264,22 @@ func (i *PsbtIntent) Verify(packet *psbt.Packet) error {
 			"malleability: %v", err)
 	}
 
+	// In case we aren't going to publish any transaction, we now have
+	// everything we need and can skip the Finalize step.
 	i.PendingPsbt = packet
+	if !i.shouldPublish && skipFinalize {
+		i.FinalTX = packet.UnsignedTx
+		i.State = PsbtFinalized
+
+		// Signal the funding manager that it can now continue with its
+		// funding flow as the PSBT is now complete .
+		i.signalPsbtReady.Do(func() {
+			close(i.PsbtReady)
+		})
+
+		return nil
+	}
+
 	i.State = PsbtVerified
 	return nil
 }

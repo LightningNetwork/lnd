@@ -6899,7 +6899,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 		}
 
 		err = r.server.cc.Wallet.PsbtFundingVerify(
-			pendingChanID, packet,
+			pendingChanID, packet, in.GetPsbtVerify().SkipFinalize,
 		)
 		if err != nil {
 			return nil, err

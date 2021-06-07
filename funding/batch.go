@@ -123,7 +123,7 @@ type Wallet interface {
 	// PsbtFundingVerify looks up a previously registered funding intent by
 	// its pending channel ID and tries to advance the state machine by
 	// verifying the passed PSBT.
-	PsbtFundingVerify([32]byte, *psbt.Packet) error
+	PsbtFundingVerify([32]byte, *psbt.Packet, bool) error
 
 	// PsbtFundingFinalize looks up a previously registered funding intent
 	// by its pending channel ID and tries to advance the state machine by
@@ -335,7 +335,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	// each of the channels.
 	for _, channel := range b.channels {
 		err = b.cfg.Wallet.PsbtFundingVerify(
-			channel.pendingChanID, unsignedPacket,
+			channel.pendingChanID, unsignedPacket, false,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error verifying PSBT: %v", err)

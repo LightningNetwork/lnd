@@ -4016,6 +4016,11 @@
           "type": "string",
           "format": "byte",
           "description": "The pending channel ID of the channel to get the PSBT for."
+        },
+        "skip_finalize": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Can only be used if the no_publish flag was set to true in the OpenChannel\ncall meaning that the caller is solely responsible for publishing the final\nfunding transaction. If skip_finalize is set to true then lnd will not wait\nfor a FundingPsbtFinalize state step and instead assumes that a transaction\nwith the same TXID as the passed in PSBT will eventually confirm.\nIT IS ABSOLUTELY IMPERATIVE that the TXID of the transaction that is\neventually published does have the _same TXID_ as the verified PSBT. That\nmeans no inputs or outputs can change, only signatures can be added. If the\nTXID changes between this call and the publish step then the channel will\nnever be created and the funds will be in limbo."
         }
       }
     },

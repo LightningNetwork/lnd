@@ -557,7 +557,7 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 // pending channel ID and tries to advance the state machine by verifying the
 // passed PSBT.
 func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
-	packet *psbt.Packet) error {
+	packet *psbt.Packet, skipFinalize bool) error {
 
 	l.intentMtx.Lock()
 	defer l.intentMtx.Unlock()
@@ -571,7 +571,13 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 	if !ok {
 		return fmt.Errorf("incompatible funding intent")
 	}
-	err := psbtIntent.Verify(packet)
+
+	if skipFinalize && psbtIntent.ShouldPublishFundingTX() {
+		return fmt.Errorf("cannot set skip_finalize for channel that " +
+			"did not set no_publish")
+	}
+
+	err := psbtIntent.Verify(packet, skipFinalize)
 	if err != nil {
 		return fmt.Errorf("error verifying PSBT: %v", err)
 	}

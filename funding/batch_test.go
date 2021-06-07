@@ -233,7 +233,7 @@ func (h *testHarness) ReleaseOutput(_ context.Context,
 	return &walletrpc.ReleaseOutputResponse{}, nil
 }
 
-func (h *testHarness) PsbtFundingVerify([32]byte, *psbt.Packet) error {
+func (h *testHarness) PsbtFundingVerify([32]byte, *psbt.Packet, bool) error {
 	return nil
 }
 
