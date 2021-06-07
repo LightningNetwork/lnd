@@ -52,6 +52,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -294,6 +295,13 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/OpenChannel": {{
+			Entity: "onchain",
+			Action: "write",
+		}, {
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/BatchOpenChannel": {{
 			Entity: "onchain",
 			Action: "write",
 		}, {
@@ -1782,7 +1790,7 @@ func (r *rpcServer) canOpenChannel() error {
 	return nil
 }
 
-// praseOpenChannelReq parses an OpenChannelRequest message into an InitFundingMsg
+// parseOpenChannelReq parses an OpenChannelRequest message into an InitFundingMsg
 // struct. The logic is abstracted so that it can be shared between OpenChannel
 // and OpenChannelSync.
 func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
@@ -2071,6 +2079,82 @@ func (r *rpcServer) OpenChannelSync(ctx context.Context,
 	case <-r.quit:
 		return nil, nil
 	}
+}
+
+// BatchOpenChannel attempts to open multiple single-funded channels in a
+// single transaction in an atomic way. This means either all channel open
+// requests succeed at once or all attempts are aborted if any of them fail.
+// This is the safer variant of using PSBTs to manually fund a batch of
+// channels through the OpenChannel RPC.
+func (r *rpcServer) BatchOpenChannel(ctx context.Context,
+	in *lnrpc.BatchOpenChannelRequest) (*lnrpc.BatchOpenChannelResponse,
+	error) {
+
+	if err := r.canOpenChannel(); err != nil {
+		return nil, err
+	}
+
+	// We need the wallet kit server to do the heavy lifting on the PSBT
+	// part. Doesn't make sense to re-implement all of that in the main
+	// server again.
+	var walletKitServer walletrpc.WalletKitServer
+	for _, subServer := range r.subServers {
+		if subServer.Name() == walletrpc.SubServerName {
+			walletKitServer = subServer.(walletrpc.WalletKitServer)
+		}
+	}
+	if walletKitServer == nil {
+		return nil, fmt.Errorf("batch channel open is only possible " +
+			"if walletrpc subserver is active")
+	}
+
+	rpcsLog.Debugf("[batchopenchannel] request to open batch of %d "+
+		"channels", len(in.Channels))
+
+	// Make sure there is at least one channel to open. We could say we want
+	// at least two channels for a batch. But maybe it's nice if developers
+	// can use the same API for a single channel as well as a batch of
+	// channels.
+	if len(in.Channels) == 0 {
+		return nil, fmt.Errorf("specify at least one channel")
+	}
+
+	// In case we remove a pending channel from the database, we need to set
+	// a close height, so we'll just use the current best known height.
+	_, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("error fetching best block: %v", err)
+	}
+
+	// So far everything looks good and we can now start the heavy lifting
+	// that's done in the funding package.
+	requestParser := func(req *lnrpc.OpenChannelRequest) (
+		*funding.InitFundingMsg, error) {
+
+		return r.parseOpenChannelReq(req, false)
+	}
+	channelAbandoner := func(point *wire.OutPoint) error {
+		return r.abandonChan(point, uint32(bestHeight))
+	}
+	batcher := funding.NewBatcher(&funding.BatchConfig{
+		RequestParser:    requestParser,
+		ChannelAbandoner: channelAbandoner,
+		ChannelOpener:    r.server.OpenChannel,
+		WalletKitServer:  walletKitServer,
+		Wallet:           r.server.cc.Wallet,
+		NetParams:        &r.server.cc.Wallet.Cfg.NetParams,
+		Quit:             r.quit,
+	})
+	rpcPoints, err := batcher.BatchFund(ctx, in)
+	if err != nil {
+		return nil, fmt.Errorf("batch funding failed: %v", err)
+	}
+
+	// Now all that's left to do is send back the response with the channel
+	// points we created.
+	return &lnrpc.BatchOpenChannelResponse{
+		PendingChannels: rpcPoints,
+	}, nil
 }
 
 // CloseChannel attempts to close an active channel identified by its channel

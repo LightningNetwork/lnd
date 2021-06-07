@@ -200,6 +200,16 @@ service Lightning {
     */
     rpc OpenChannel (OpenChannelRequest) returns (stream OpenStatusUpdate);
 
+    /* lncli: `batchopenchannel`
+    BatchOpenChannel attempts to open multiple single-funded channels in a
+    single transaction in an atomic way. This means either all channel open
+    requests succeed at once or all attempts are aborted if any of them fail.
+    This is the safer variant of using PSBTs to manually fund a batch of
+    channels through the OpenChannel RPC.
+    */
+    rpc BatchOpenChannel (BatchOpenChannelRequest)
+        returns (BatchOpenChannelResponse);
+
     /*
     FundingStateStep is an advanced funding related call that allows the caller
     to either execute some preparatory steps for a funding workflow, or
@@ -1770,6 +1780,67 @@ message ReadyForPsbtFunding {
     bytes psbt = 3;
 }
 
+message BatchOpenChannelRequest {
+    // The list of channels to open.
+    repeated BatchOpenChannel channels = 1;
+
+    // The target number of blocks that the funding transaction should be
+    // confirmed by.
+    int32 target_conf = 2;
+
+    // A manual fee rate set in sat/vByte that should be used when crafting the
+    // funding transaction.
+    int64 sat_per_vbyte = 3;
+
+    // The minimum number of confirmations each one of your outputs used for
+    // the funding transaction must satisfy.
+    int32 min_confs = 4;
+
+    // Whether unconfirmed outputs should be used as inputs for the funding
+    // transaction.
+    bool spend_unconfirmed = 5;
+
+    // An optional label for the batch transaction, limited to 500 characters.
+    string label = 6;
+}
+
+message BatchOpenChannel {
+    // The pubkey of the node to open a channel with. When using REST, this
+    // field must be encoded as base64.
+    bytes node_pubkey = 1;
+
+    // The number of satoshis the wallet should commit to the channel.
+    int64 local_funding_amount = 2;
+
+    // The number of satoshis to push to the remote side as part of the initial
+    // commitment state.
+    int64 push_sat = 3;
+
+    // Whether this channel should be private, not announced to the greater
+    // network.
+    bool private = 4;
+
+    // The minimum value in millisatoshi we will require for incoming HTLCs on
+    // the channel.
+    int64 min_htlc_msat = 5;
+
+    // The delay we require on the remote's commitment transaction. If this is
+    // not set, it will be scaled automatically with the channel size.
+    uint32 remote_csv_delay = 6;
+
+    /*
+    Close address is an optional address which specifies the address to which
+    funds should be paid out to upon cooperative close. This field may only be
+    set if the peer supports the option upfront feature bit (call listpeers
+    to check). The remote peer will only accept cooperative closes to this
+    address if it is set.
+
+    Note: If this value is set on channel creation, you will *not* be able to
+    cooperatively close out to a different address.
+    */
+    string close_address = 7;
+}
+
 message OpenChannelRequest {
     // A manual fee rate set in sat/vbyte that should be used when crafting the
     // funding transaction.
@@ -1862,6 +1933,27 @@ message OpenChannelRequest {
     */
     uint32 max_local_csv = 17;
 }
+
+message ChannelOpenStatusUpdate {
+    oneof update {
+        /*
+        Signals that the channel is now fully negotiated and the funding
+        transaction published.
+        */
+        PendingUpdate chan_pending = 1;
+
+        /*
+        Signals that the channel's funding transaction has now reached the
+        required number of confirmations on chain and can be used.
+        */
+        ChannelOpenUpdate chan_open = 2;
+    }
+}
+
+message BatchOpenChannelResponse {
+    repeated PendingUpdate pending_channels = 1;
+}
+
 message OpenStatusUpdate {
     oneof update {
         /*
