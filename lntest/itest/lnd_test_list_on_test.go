@@ -267,6 +267,10 @@ var allTestCases = []*testCase{
 		test: testPsbtChanFunding,
 	},
 	{
+		name: "psbt channel funding external",
+		test: testPsbtChanFundingExternal,
+	},
+	{
 		name: "batch channel funding",
 		test: testBatchChanFunding,
 	},
