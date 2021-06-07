@@ -66,6 +66,8 @@
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 10.00000001 BTC exceeds maximum chan size of 10 BTC
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Number of pending channels exceed maximum
 <time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=Synchronizing blockchain
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.001 BTC is below min chan size of 0.002 BTC
+<time> [ERR] FNDG: received funding error from <hex>: chan_id=<hex>, err=funding failed due to internal error
 <time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: canceled adding new channel
 <time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: peer exiting
 <time> [ERR] FNDG: Unable to add new channel <chan_point> with peer <hex>: unable to get best block: the client has been shutdown
@@ -86,6 +88,7 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: funding manager shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed sending fundingLocked: funding manager shutting down
 <time> [ERR] FNDG: unable to cancel reservation: no active reservations for peer(<hex>)
+<time> [ERR] FNDG: Unable to handle funding accept message for peer_key=<hex>, pending_chan_id=<hex>: aborting PSBT flow: user canceled funding
 <time> [ERR] FNDG: unable to report short chan id: link <hex> not found
 <time> [ERR] FNDG: Unable to send channel proof: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
 <time> [ERR] FNDG: Unable to send channel proof: gossiper is shutting down
@@ -93,6 +96,7 @@
 <time> [ERR] FNDG: Unable to send channel proof: unable add proof to the channel chanID=<hex>: edge not found
 <time> [ERR] FNDG: Unable to send node announcement: gossiper is shutting down
 <time> [ERR] FNDG: Unable to send node announcement: router shutting down
+<time> [ERR] FNDG: unable to open channel to NodeKey(<hex>): remote canceled funding, possibly timed out: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.001 BTC is below min chan size of 0.002 BTC
 <time> [ERR] HSWC: AmountBelowMinimum(amt=<amt>, update=(lnwire.ChannelUpdate) {
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=internal error with error: remote error
 <time> [ERR] HSWC: ChannelLink(<chan>): failing link: ChannelPoint(<chan_point>): received error from peer: chan_id=<hex>, err=invalid update with error: remote error
@@ -184,6 +188,7 @@
 <time> [ERR] RPCS: Failed sending response: rpc error: code = Canceled desc = context canceled
 <time> [ERR] RPCS: Failed sending response: rpc error: code = Internal desc = transport: transport: the stream is done or WriteHeader was already called
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: rpc error: code = Canceled desc = context canceled
+<time> [ERR] RPCS: [/lnrpc.Lightning/BatchOpenChannel]: batch funding failed: error batch opening channel, initial negotiation failed: remote canceled funding, possibly timed out: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.001 BTC is below min chan size of 0.002 BTC
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission action. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: invalid permission entity. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]
 <time> [ERR] RPCS: [/lnrpc.Lightning/BakeMacaroon]: permission list cannot be empty. specify at least one action/entity pair. supported actions are [read write generate], supported entities are [onchain offchain address message peers info invoices signer macaroon uri]

@@ -267,6 +267,10 @@ var allTestCases = []*testCase{
 		test: testPsbtChanFunding,
 	},
 	{
+		name: "batch channel funding",
+		test: testBatchChanFunding,
+	},
+	{
 		name: "sendtoroute multi path payment",
 		test: testSendToRouteMultiPath,
 	},

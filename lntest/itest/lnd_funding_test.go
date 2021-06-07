@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -19,7 +20,6 @@ import (
 // conditions. Finally, the chain itself is checked to ensure the closing
 // transaction was mined.
 func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
-
 	ctxb := context.Background()
 
 	// Run through the test with combinations of all the different
@@ -377,7 +377,7 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	closeChannelAndAssert(ctxt, t, net, carol, chanPoint, false)
 }
 
-// testexternalfundingchanpoint tests that we're able to carry out a normal
+// testExternalFundingChanPoint tests that we're able to carry out a normal
 // channel funding workflow given a channel point that was constructed outside
 // the main daemon.
 func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
@@ -505,4 +505,133 @@ func testExternalFundingChanPoint(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// It should now not appear in the pending channels anymore.
 	assertNumOpenChannelsPending(ctxt, t, carol, dave, 0)
+}
+
+// testBatchChanFunding makes sure multiple channels can be opened in one batch
+// transaction in an atomic way.
+func testBatchChanFunding(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+	const chanSize = funding.MaxBtcFundingAmount
+
+	// First, we'll create two new nodes that we'll use to open channels
+	// to during this test. Carol has a high minimum funding amount that
+	// we'll use to trigger an error during the batch channel open.
+	carol, err := net.NewNode("carol", []string{"--minchansize=200000"})
+	require.NoError(t.t, err)
+	defer shutdownAndAssert(net, t, carol)
+
+	dave, err := net.NewNode("dave", nil)
+	require.NoError(t.t, err)
+	defer shutdownAndAssert(net, t, dave)
+
+	// Before we start the test, we'll ensure Alice is connected to Carol
+	// and Dave so she can open channels to both of them (and Bob).
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	err = net.EnsureConnected(ctxt, net.Alice, net.Bob)
+	require.NoError(t.t, err)
+	err = net.EnsureConnected(ctxt, net.Alice, carol)
+	require.NoError(t.t, err)
+	err = net.EnsureConnected(ctxt, net.Alice, dave)
+	require.NoError(t.t, err)
+
+	// Let's create our batch TX request. This first one should fail as we
+	// open a channel to Carol that is too small for her min chan size.
+	batchReq := &lnrpc.BatchOpenChannelRequest{
+		SatPerVbyte: 12,
+		MinConfs:    1,
+		Channels: []*lnrpc.BatchOpenChannel{{
+			NodePubkey:         net.Bob.PubKey[:],
+			LocalFundingAmount: 100_000,
+		}, {
+			NodePubkey:         carol.PubKey[:],
+			LocalFundingAmount: 100_000,
+		}, {
+			NodePubkey:         dave.PubKey[:],
+			LocalFundingAmount: 100_000,
+		}},
+	}
+
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	_, err = net.Alice.BatchOpenChannel(ctxt, batchReq)
+	require.Error(t.t, err)
+	require.Contains(t.t, err.Error(), "initial negotiation failed")
+
+	// Let's fix the minimum amount for Carol now and try again.
+	batchReq.Channels[1].LocalFundingAmount = 200_000
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	batchResp, err := net.Alice.BatchOpenChannel(ctxt, batchReq)
+	require.NoError(t.t, err)
+	require.Len(t.t, batchResp.PendingChannels, 3)
+
+	txHash, err := chainhash.NewHash(batchResp.PendingChannels[0].Txid)
+	require.NoError(t.t, err)
+
+	chanPoint1 := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: batchResp.PendingChannels[0].Txid,
+		},
+		OutputIndex: batchResp.PendingChannels[0].OutputIndex,
+	}
+	chanPoint2 := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: batchResp.PendingChannels[1].Txid,
+		},
+		OutputIndex: batchResp.PendingChannels[1].OutputIndex,
+	}
+	chanPoint3 := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: batchResp.PendingChannels[2].Txid,
+		},
+		OutputIndex: batchResp.PendingChannels[2].OutputIndex,
+	}
+
+	block := mineBlocks(t, net, 6, 1)[0]
+	assertTxInBlock(t, block, txHash)
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint1)
+	require.NoError(t.t, err)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint2)
+	require.NoError(t.t, err)
+	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint3)
+	require.NoError(t.t, err)
+
+	// With the channel open, ensure that it is counted towards Carol's
+	// total channel balance.
+	balReq := &lnrpc.ChannelBalanceRequest{}
+	ctxt, cancel = context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	balRes, err := net.Alice.ChannelBalance(ctxt, balReq)
+	require.NoError(t.t, err)
+	require.NotEqual(t.t, int64(0), balRes.LocalBalance.Sat)
+
+	// Next, to make sure the channel functions as normal, we'll make some
+	// payments within the channel.
+	payAmt := btcutil.Amount(100000)
+	invoice := &lnrpc.Invoice{
+		Memo:  "new chans",
+		Value: int64(payAmt),
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	resp, err := carol.AddInvoice(ctxt, invoice)
+	require.NoError(t.t, err)
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	err = completePaymentRequests(
+		ctxt, net.Alice, net.Alice.RouterClient,
+		[]string{resp.PaymentRequest}, true,
+	)
+	require.NoError(t.t, err)
+
+	// To conclude, we'll close the newly created channel between Carol and
+	// Dave. This function will also block until the channel is closed and
+	// will additionally assert the relevant channel closing post
+	// conditions.
+	ctxt, cancel = context.WithTimeout(ctxb, channelCloseTimeout)
+	defer cancel()
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint1, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint2, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint3, false)
 }
