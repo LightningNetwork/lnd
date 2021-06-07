@@ -63,16 +63,16 @@ func (s *ShimIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
 func (s *ShimIntent) Cancel() {
 }
 
-// RemoteFundingAmt is the amount the remote party put into the channel.
+// LocalFundingAmt is the amount we put into the channel. This may differ from
+// the local amount requested, as depending on coin selection, we may bleed
+// from of that LocalAmt into fees to minimize change.
 //
 // NOTE: This method satisfies the chanfunding.Intent interface.
 func (s *ShimIntent) LocalFundingAmt() btcutil.Amount {
 	return s.localFundingAmt
 }
 
-// LocalFundingAmt is the amount we put into the channel. This may differ from
-// the local amount requested, as depending on coin selection, we may bleed
-// from of that LocalAmt into fees to minimize change.
+// RemoteFundingAmt is the amount the remote party put into the channel.
 //
 // NOTE: This method satisfies the chanfunding.Intent interface.
 func (s *ShimIntent) RemoteFundingAmt() btcutil.Amount {
