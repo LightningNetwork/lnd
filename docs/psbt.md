@@ -624,3 +624,228 @@ lingering reservations/intents/pending channels are cleaned up.
 
 **NOTE**: You must be connected to each of the nodes you want to open channels
 to before you run the command.
+
+### Example Node.JS script
+
+To demonstrate how the PSBT funding API can be used with JavaScript, we add a
+simple example script that imitates the behavior of `lncli` but **does not
+publish** the final transaction itself. This allows the app creator to publish
+the transaction whenever everything is ready.
+
+> multi-channel-funding.js
+```js
+const fs = require('fs');
+const grpc = require('@grpc/grpc-js');
+const protoLoader = require('@grpc/proto-loader');
+const Buffer = require('safe-buffer').Buffer;
+const randomBytes = require('random-bytes').sync;
+const prompt = require('prompt');
+
+const LND_DIR = '/home/myuser/.lnd';
+const LND_HOST = 'localhost:10009';
+const NETWORK = 'regtest';
+const LNRPC_PROTO_DIR = '/home/myuser/projects/go/lnd/lnrpc';
+
+const grpcOptions = {
+    keepCase: true,
+    longs: String,
+    enums: String,
+    defaults: true,
+    oneofs: true,
+    includeDirs: [LNRPC_PROTO_DIR],
+};
+
+const packageDefinition = protoLoader.loadSync(`${LNRPC_PROTO_DIR}/rpc.proto`, grpcOptions);
+const lnrpc = grpc.loadPackageDefinition(packageDefinition).lnrpc;
+
+process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA';
+
+const adminMac = fs.readFileSync(`${LND_DIR}/data/chain/bitcoin/${NETWORK}/admin.macaroon`);
+const metadata = new grpc.Metadata();
+metadata.add('macaroon', adminMac.toString('hex'));
+const macaroonCreds = grpc.credentials.createFromMetadataGenerator((_args, callback) => {
+    callback(null, metadata);
+});
+
+const lndCert = fs.readFileSync(`${LND_DIR}/tls.cert`);
+const sslCreds = grpc.credentials.createSsl(lndCert);
+const credentials = grpc.credentials.combineChannelCredentials(sslCreds, macaroonCreds);
+
+const client = new lnrpc.Lightning(LND_HOST, credentials);
+
+const params = process.argv.slice(2);
+
+if (params.length % 2 !== 0) {
+    console.log('Usage: node multi-channel-funding.js pubkey amount [pubkey amount]...')
+}
+
+const channels = [];
+for (let i = 0; i < params.length; i += 2) {
+    channels.push({
+        pubKey: Buffer.from(params[i], 'hex'),
+        amount: parseInt(params[i + 1], 10),
+        pendingChanID: randomBytes(32),
+        outputAddr: '',
+        finalized: false,
+        chanPending: null,
+        cleanedUp: false,
+    });
+}
+
+channels.forEach(c => {
+    const openChannelMsg = {
+        node_pubkey: c.pubKey,
+        local_funding_amount: c.amount,
+        funding_shim: {
+            psbt_shim: {
+                pending_chan_id: c.pendingChanID,
+                no_publish: true,
+            }
+        }
+    };
+    const openChannelCall = client.OpenChannel(openChannelMsg);
+    openChannelCall.on('data', function (update) {
+        if (update.psbt_fund && update.psbt_fund.funding_address) {
+            console.log('Got funding addr for PSBT: ' + update.psbt_fund.funding_address);
+            c.outputAddr = update.psbt_fund.funding_address;
+            maybeFundPSBT();
+        }
+        if (update.chan_pending) {
+            c.chanPending = update.chan_pending;
+            const txidStr = update.chan_pending.txid.reverse().toString('hex');
+            console.log(`
+Channels are now pending!
+Expected TXID of published final transaction: ${txidStr}
+`);
+            process.exit(0);
+        }
+    });
+    openChannelCall.on('error', function (e) {
+        console.log('Error on open channel call: ' + e);
+        tryCleanup();
+    });
+});
+
+function tryCleanup() {
+    function maybeExit() {
+        for (let i = 0; i < channels.length; i++) {
+            if (!channels[i].cleanedUp) {
+                // Not all channels are cleaned up yet.
+                return;
+            }
+        }
+    }
+    channels.forEach(c => {
+        if (c.cleanedUp) {
+            return;
+        }
+        if (c.chanPending === null) {
+            console.log("Cleaning up channel, shim cancel")
+            // The channel never made it into the pending state, let's try to
+            // remove the funding shim. This is best effort. Depending on the
+            // state of the channel this might fail so we don't log any errors
+            // here.
+            client.FundingStateStep({
+                shim_cancel: {
+                    pending_chan_id: c.pendingChanID,
+                }
+            }, () => {
+                c.cleanedUp = true;
+                maybeExit();
+            });
+        } else {
+            // The channel is pending but since we aborted will never make it
+            // to be confirmed. We need to tell lnd to abandon this channel
+            // otherwise it will show in the pending channels for forever.
+            console.log("Cleaning up channel, abandon channel")
+            client.AbandonChannel({
+                channel_point: {
+                    funding_txid: {
+                        funding_txid_bytes: c.chanPending.txid,
+                    },
+                    output_index: c.chanPending.output_index,
+                },
+                i_know_what_i_am_doing: true,
+            }, () => {
+                c.cleanedUp = true;
+                maybeExit();
+            });
+        }
+    });
+}
+
+function maybeFundPSBT() {
+    const outputsBitcoind = [];
+    const outputsLnd = {};
+    for (let i = 0; i < channels.length; i++) {
+        const c = channels[i];
+        if (c.outputAddr === '') {
+            // Not all channels did get a funding address yet.
+            return;
+        }
+
+        outputsBitcoind.push({
+            [c.outputAddr]: c.amount / 100000000,
+        });
+        outputsLnd[c.outputAddr] = c.amount;
+    }
+
+    console.log(`
+Channels ready for funding transaction.
+Please create a funded PSBT now.
+Examples:
+
+bitcoind:
+    bitcoin-cli walletcreatefundedpsbt '[]' '${JSON.stringify(outputsBitcoind)}' 0 '{"fee_rate": 15}'
+
+lnd:
+    lncli wallet psbt fund --outputs='${JSON.stringify(outputsLnd)}' --sat_per_vbyte=15
+`);
+
+    prompt.get([{name: 'funded_psbt'}], (err, result) => {
+        if (err) {
+            console.log(err);
+
+            tryCleanup();
+            return;
+        }
+        channels.forEach(c => {
+            const verifyMsg = {
+                psbt_verify: {
+                    funded_psbt: Buffer.from(result.funded_psbt, 'base64'),
+                    pending_chan_id: c.pendingChanID,
+                    skip_finalize: true
+                }
+            };
+            client.FundingStateStep(verifyMsg, (err, res) => {
+                if (err) {
+                    console.log(err);
+
+                    tryCleanup();
+                    return;
+                }
+                if (res) {
+                    c.finalized = true;
+                    maybePublishPSBT();
+                }
+            });
+        });
+    });
+}
+
+function maybePublishPSBT() {
+    for (let i = 0; i < channels.length; i++) {
+        const c = channels[i];
+        if (!channels[i].finalized) {
+            // Not all channels are verified/finalized yet.
+            return;
+        }
+    }
+
+    console.log(`
+PSBT verification successful!
+You can now sign and publish the transaction.
+Make sure the TXID does not change!
+`);
+}
+```
