@@ -176,18 +176,27 @@ scratch: build
 
 check: unit itest
 
-itest-only:
+db-instance:
+ifeq ($(dbbackend),postgres)
+	docker rm lnd-postgres --force
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres -N 500
+
+	# Wait for it to be started
+	sleep 3
+endif
+
+itest-only: db-instance
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
-	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
+	EXEC_SUFFIX=$(EXEC_SUFFIX) DBBACKEND=$(dbbackend) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
 	lntest/itest/log_check_errors.sh
 
 itest: build-itest itest-only
 
-itest-parallel: build-itest
+itest-parallel: build-itest db-instance
 	@$(call print, "Running tests")
 	rm -rf lntest/itest/*.log lntest/itest/.logs-*; date
-	EXEC_SUFFIX=$(EXEC_SUFFIX) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
+	EXEC_SUFFIX=$(EXEC_SUFFIX) DBBACKEND=$(dbbackend) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
 	lntest/itest/log_check_errors.sh
 
 unit: btcd

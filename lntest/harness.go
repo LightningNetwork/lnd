@@ -88,6 +88,7 @@ type DatabaseBackend int
 const (
 	BackendBbolt DatabaseBackend = iota
 	BackendEtcd
+	BackendPostgres
 )
 
 // NewNetworkHarness creates a new network test harness.
@@ -1595,36 +1596,74 @@ func (n *NetworkHarness) BackupDb(hn *HarnessNode) error {
 		return errors.New("backup already created")
 	}
 
-	// Backup files.
-	tempDir, err := ioutil.TempDir("", "past-state")
+	restart, err := n.SuspendNode(hn)
 	if err != nil {
-		return fmt.Errorf("unable to create temp db folder: %v", err)
+		return err
 	}
 
-	if err := copyAll(tempDir, hn.DBDir()); err != nil {
-		return fmt.Errorf("unable to copy database files: %v", err)
+	if hn.postgresDbName != "" {
+		// Backup database.
+		backupDbName := hn.postgresDbName + "_backup"
+		err := executePgQuery(
+			"CREATE DATABASE " + backupDbName + " WITH TEMPLATE " + hn.postgresDbName,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Backup files.
+		tempDir, err := ioutil.TempDir("", "past-state")
+		if err != nil {
+			return fmt.Errorf("unable to create temp db folder: %v", err)
+		}
+
+		if err := copyAll(tempDir, hn.DBDir()); err != nil {
+			return fmt.Errorf("unable to copy database files: %v", err)
+		}
+
+		hn.backupDbDir = tempDir
 	}
 
-	hn.backupDbDir = tempDir
+	err = restart()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 // RestoreDb restores a database backup.
 func (n *NetworkHarness) RestoreDb(hn *HarnessNode) error {
-	if hn.backupDbDir == "" {
-		return errors.New("no database backup created")
-	}
+	if hn.postgresDbName != "" {
+		// Restore database.
+		backupDbName := hn.postgresDbName + "_backup"
+		err := executePgQuery(
+			"DROP DATABASE " + hn.postgresDbName,
+		)
+		if err != nil {
+			return err
+		}
+		err = executePgQuery(
+			"ALTER DATABASE " + backupDbName + " RENAME TO " + hn.postgresDbName,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Restore files.
+		if hn.backupDbDir == "" {
+			return errors.New("no database backup created")
+		}
 
-	// Restore files.
-	if err := copyAll(hn.DBDir(), hn.backupDbDir); err != nil {
-		return fmt.Errorf("unable to copy database files: %v", err)
-	}
+		if err := copyAll(hn.DBDir(), hn.backupDbDir); err != nil {
+			return fmt.Errorf("unable to copy database files: %v", err)
+		}
 
-	if err := os.RemoveAll(hn.backupDbDir); err != nil {
-		return fmt.Errorf("unable to remove backup dir: %v", err)
+		if err := os.RemoveAll(hn.backupDbDir); err != nil {
+			return fmt.Errorf("unable to remove backup dir: %v", err)
+		}
+		hn.backupDbDir = ""
 	}
-	hn.backupDbDir = ""
 
 	return nil
 }
