@@ -39,28 +39,6 @@ func TestCommitQueue(t *testing.T) {
 		}
 	}
 
-	// Helper function to create a read set from the passed keys.
-	makeReadSet := func(keys []string) readSet {
-		rs := make(map[string]stmGet)
-
-		for _, key := range keys {
-			rs[key] = stmGet{}
-		}
-
-		return rs
-	}
-
-	// Helper function to create a write set from the passed keys.
-	makeWriteSet := func(keys []string) writeSet {
-		ws := make(map[string]stmPut)
-
-		for _, key := range keys {
-			ws[key] = stmPut{}
-		}
-
-		return ws
-	}
-
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	q := NewCommitQueue(ctx)
@@ -73,26 +51,26 @@ func TestCommitQueue(t *testing.T) {
 	// Tx1: reads: key1, key2, writes: key3, conflict: none
 	q.Add(
 		commit("free", true),
-		makeReadSet([]string{"key1", "key2"}),
-		makeWriteSet([]string{"key3"}),
+		[]string{"key1", "key2"},
+		[]string{"key3"},
 	)
 	// Tx2: reads: key1, key2, writes: key3, conflict: Tx1
 	q.Add(
 		commit("blocked1", false),
-		makeReadSet([]string{"key1", "key2"}),
-		makeWriteSet([]string{"key3"}),
+		[]string{"key1", "key2"},
+		[]string{"key3"},
 	)
 	// Tx3: reads: key1, writes: key4, conflict: none
 	q.Add(
 		commit("free", true),
-		makeReadSet([]string{"key1", "key2"}),
-		makeWriteSet([]string{"key4"}),
+		[]string{"key1", "key2"},
+		[]string{"key4"},
 	)
 	// Tx4: reads: key2, writes: key4 conflict: Tx3
 	q.Add(
 		commit("blocked2", false),
-		makeReadSet([]string{"key2"}),
-		makeWriteSet([]string{"key4"}),
+		[]string{"key2"},
+		[]string{"key4"},
 	)
 
 	// Wait for all commits.

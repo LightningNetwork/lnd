@@ -54,14 +54,14 @@ func (c *commitQueue) Wait() {
 // Add increases lock counts and queues up tx commit closure for execution.
 // Transactions that don't have any conflicts are executed immediately by
 // "downgrading" the count mutex to allow concurrency.
-func (c *commitQueue) Add(commitLoop func(), rset readSet, wset writeSet) {
+func (c *commitQueue) Add(commitLoop func(), rset []string, wset []string) {
 	c.mx.Lock()
 	blocked := false
 
 	// Mark as blocked if there's any writer changing any of the keys in
 	// the read set. Do not increment the reader counts yet as we'll need to
 	// use the original reader counts when scanning through the write set.
-	for key := range rset {
+	for _, key := range rset {
 		if c.writerMap[key] > 0 {
 			blocked = true
 			break
@@ -70,7 +70,7 @@ func (c *commitQueue) Add(commitLoop func(), rset readSet, wset writeSet) {
 
 	// Mark as blocked if there's any writer or reader for any of the keys
 	// in the write set.
-	for key := range wset {
+	for _, key := range wset {
 		blocked = blocked || c.readerMap[key] > 0 || c.writerMap[key] > 0
 
 		// Increment the writer count.
@@ -78,7 +78,7 @@ func (c *commitQueue) Add(commitLoop func(), rset readSet, wset writeSet) {
 	}
 
 	// Finally we can increment the reader counts for keys in the read set.
-	for key := range rset {
+	for _, key := range rset {
 		c.readerMap[key] += 1
 	}
 
@@ -108,18 +108,18 @@ func (c *commitQueue) Add(commitLoop func(), rset readSet, wset writeSet) {
 }
 
 // Done decreases lock counts of the keys in the read/write sets.
-func (c *commitQueue) Done(rset readSet, wset writeSet) {
+func (c *commitQueue) Done(rset []string, wset []string) {
 	c.mx.Lock()
 	defer c.mx.Unlock()
 
-	for key := range rset {
+	for _, key := range rset {
 		c.readerMap[key] -= 1
 		if c.readerMap[key] == 0 {
 			delete(c.readerMap, key)
 		}
 	}
 
-	for key := range wset {
+	for _, key := range wset {
 		c.writerMap[key] -= 1
 		if c.writerMap[key] == 0 {
 			delete(c.writerMap, key)
