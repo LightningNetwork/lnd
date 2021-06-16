@@ -829,6 +829,39 @@ func (c *OpenChannel) RefreshShortChanID() error {
 func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 	outPoint *wire.OutPoint, chainHash chainhash.Hash) (kvdb.RBucket, error) {
 
+	nodePub := nodeKey.SerializeCompressed()
+	var chanPointBuf bytes.Buffer
+	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+		return nil, err
+	}
+
+	root := kvdb.RootBucket(tx)
+	kvdb.Prefetch(
+		root,
+		[]string{
+			// The key for openChanBucket.
+			kvdb.BucketKey(root, string(openChannelBucket)),
+			// The key for nodeChanBucket.
+			kvdb.BucketKey(
+				root, string(openChannelBucket),
+				string(nodePub),
+			),
+			// The key for chainBucket.
+			kvdb.BucketKey(
+				root, string(openChannelBucket),
+				string(nodePub), string(chainHash[:]),
+			),
+		},
+		[]string{
+			// The range key for (= all keys in) chanBucket.
+			kvdb.RangeKey(
+				root, string(openChannelBucket),
+				string(nodePub), string(chainHash[:]),
+				chanPointBuf.String(),
+			),
+		},
+	)
+
 	// First fetch the top level bucket which stores all data related to
 	// current, active channels.
 	openChanBucket := tx.ReadBucket(openChannelBucket)
@@ -841,7 +874,6 @@ func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 
 	// Within this top level bucket, fetch the bucket dedicated to storing
 	// open channel data specific to the remote node.
-	nodePub := nodeKey.SerializeCompressed()
 	nodeChanBucket := openChanBucket.NestedReadBucket(nodePub)
 	if nodeChanBucket == nil {
 		return nil, ErrNoActiveChannels
@@ -856,10 +888,6 @@ func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 
 	// With the bucket for the node and chain fetched, we can now go down
 	// another level, for this channel itself.
-	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
-		return nil, err
-	}
 	chanBucket := chainBucket.NestedReadBucket(chanPointBuf.Bytes())
 	if chanBucket == nil {
 		return nil, ErrChannelNotFound
