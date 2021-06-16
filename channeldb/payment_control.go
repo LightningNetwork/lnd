@@ -364,14 +364,7 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// Create bucket for this attempt. Fail if the bucket already
-		// exists.
-		htlcBucket, err := htlcsBucket.CreateBucket(htlcIDBytes)
-		if err != nil {
-			return err
-		}
-
-		err = htlcBucket.Put(htlcAttemptInfoKey, htlcInfoBytes)
+		err = htlcsBucket.Put(append(htlcAttemptInfoKey, htlcIDBytes...), htlcInfoBytes)
 		if err != nil {
 			return err
 		}
@@ -453,23 +446,22 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 			return fmt.Errorf("htlcs bucket not found")
 		}
 
-		htlcBucket := htlcsBucket.NestedReadWriteBucket(htlcIDBytes)
-		if htlcBucket == nil {
+		if htlcsBucket.Get(append(htlcAttemptInfoKey, htlcIDBytes...)) == nil {
 			return fmt.Errorf("HTLC with ID %v not registered",
 				attemptID)
 		}
 
 		// Make sure the shard is not already failed or settled.
-		if htlcBucket.Get(htlcFailInfoKey) != nil {
+		if htlcsBucket.Get(append(htlcFailInfoKey, htlcIDBytes...)) != nil {
 			return ErrAttemptAlreadyFailed
 		}
 
-		if htlcBucket.Get(htlcSettleInfoKey) != nil {
+		if htlcsBucket.Get(append(htlcSettleInfoKey, htlcIDBytes...)) != nil {
 			return ErrAttemptAlreadySettled
 		}
 
 		// Add or update the key for this htlc.
-		err = htlcBucket.Put(key, value)
+		err = htlcsBucket.Put(append(key, htlcIDBytes...), value)
 		if err != nil {
 			return err
 		}
