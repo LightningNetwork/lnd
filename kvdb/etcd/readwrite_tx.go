@@ -34,6 +34,10 @@ func rootBucket(tx *readWriteTx) *readWriteBucket {
 	return newReadWriteBucket(tx, tx.rootBucketID[:], tx.rootBucketID[:])
 }
 
+func (tx *readWriteTx) RootBucket() walletdb.ReadBucket {
+	return rootBucket(tx)
+}
+
 // ReadBucket opens the root bucket for read only access.  If the bucket
 // described by the key does not exist, nil is returned.
 func (tx *readWriteTx) ReadBucket(key []byte) walletdb.ReadBucket {

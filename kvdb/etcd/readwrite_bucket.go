@@ -323,3 +323,56 @@ func (b *readWriteBucket) Sequence() uint64 {
 
 	return num
 }
+
+func (b *readWriteBucket) rangeKey(buckets ...string) string {
+	parent := b.id
+
+	for _, bucketName := range buckets {
+		bucketKey := makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(parent)
+}
+
+func (b *readWriteBucket) bucketKey(buckets ...string) string {
+	var bucketKey []byte
+	parent := b.id
+
+	for _, bucketName := range buckets {
+		bucketKey = makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(bucketKey)
+}
+
+func (b *readWriteBucket) valueKey(key string, buckets ...string) string {
+	parent := b.id
+
+	for _, bucketName := range buckets {
+		bucketKey := makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(makeValueKey(parent, []byte(key)))
+}
+
+func (b *readWriteBucket) RangeKey(buckets ...string) string {
+	return b.rangeKey(buckets...)
+}
+
+func (b *readWriteBucket) BucketKey(buckets ...string) string {
+	return b.bucketKey(buckets...)
+}
+
+func (b *readWriteBucket) ValueKey(key string, buckets ...string) string {
+	return b.valueKey(key, buckets...)
+}
+
+func (b *readWriteBucket) Prefetch(keys []string, ranges []string) {
+	b.tx.stm.Prefetch(keys, ranges)
+}
