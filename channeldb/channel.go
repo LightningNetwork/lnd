@@ -1148,8 +1148,21 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 //
 // NOTE: The primary mutex should already be held before this method is called.
 func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
-	channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
-	if err != nil {
+	channel := &OpenChannel{
+		FundingOutpoint: c.FundingOutpoint,
+	}
+
+	infoBytes := chanBucket.Get(chanInfoKey)
+	if infoBytes == nil {
+		return false, ErrNoChanInfoFound
+	}
+	r := bytes.NewReader(infoBytes)
+
+	if err := ReadElements(r,
+		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
+		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
+		&channel.chanStatus,
+	); err != nil {
 		return false, err
 	}
 
