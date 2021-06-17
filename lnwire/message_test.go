@@ -3,6 +3,7 @@ package lnwire_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"image/color"
 	"io"
 	"math"
@@ -16,6 +17,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,6 +42,148 @@ var (
 		},
 	}
 )
+
+type mockMsg struct {
+	mock.Mock
+}
+
+func (m *mockMsg) Decode(r io.Reader, pver uint32) error {
+	args := m.Called(r, pver)
+	return args.Error(0)
+}
+
+func (m *mockMsg) Encode(w io.Writer, pver uint32) error {
+	args := m.Called(w, pver)
+	return args.Error(0)
+}
+
+func (m *mockMsg) MsgType() lnwire.MessageType {
+	args := m.Called()
+	return lnwire.MessageType(args.Int(0))
+}
+
+// A compile time check to ensure mockMsg implements the lnwire.Message
+// interface.
+var _ lnwire.Message = (*mockMsg)(nil)
+
+// TestWriteMessage tests the function lnwire.WriteMessage.
+func TestWriteMessage(t *testing.T) {
+	var (
+		buf = new(bytes.Buffer)
+
+		// encodeNormalSize specifies a message size that is normal.
+		encodeNormalSize = 1000
+
+		// encodeOversize specifies a message size that's too big.
+		encodeOversize = lnwire.MaxMsgBody + 1
+
+		// errDummy is returned by the msg.Encode when specified.
+		errDummy = errors.New("test error")
+
+		// oneByte is a dummy byte used to fill up the buffer.
+		oneByte = [1]byte{}
+	)
+
+	testCases := []struct {
+		name string
+
+		// encodeSize controls how many bytes are written to the buffer
+		// by the method msg.Encode(buf, pver).
+		encodeSize int
+
+		// encodeErr determines the return value of the method
+		// msg.Encode(buf, pver).
+		encodeErr error
+
+		errorExpected error
+	}{
+
+		{
+			name:          "successful write",
+			encodeSize:    encodeNormalSize,
+			encodeErr:     nil,
+			errorExpected: nil,
+		},
+		{
+			name:          "failed to encode payload",
+			encodeSize:    encodeNormalSize,
+			encodeErr:     errDummy,
+			errorExpected: lnwire.ErrorEncodeMessage(errDummy),
+		},
+		{
+			name:       "exceeds MaxMsgBody",
+			encodeSize: encodeOversize,
+			encodeErr:  nil,
+			errorExpected: lnwire.ErrorPayloadTooLarge(
+				encodeOversize,
+			),
+		},
+	}
+
+	for _, test := range testCases {
+		tc := test
+		t.Run(tc.name, func(t *testing.T) {
+			// Start the test by creating a mock message and patch
+			// the relevant methods.
+			msg := &mockMsg{}
+
+			// Use message type Ping here since all types are
+			// encoded using 2 bytes, it won't affect anything
+			// here.
+			msg.On("MsgType").Return(lnwire.MsgPing)
+
+			// Encode will return the specified error (could be
+			// nil) and has the side effect of filling up the
+			// buffer by repeating the oneByte encodeSize times.
+			msg.On("Encode", mock.Anything, mock.Anything).Return(
+				tc.encodeErr,
+			).Run(func(_ mock.Arguments) {
+				for i := 0; i < tc.encodeSize; i++ {
+					_, err := buf.Write(oneByte[:])
+					require.NoError(t, err)
+				}
+			})
+
+			// Record the initial state of the buffer and write the
+			// message.
+			oldBytesSize := buf.Len()
+			bytesWritten, err := lnwire.WriteMessage(
+				buf, msg, 1,
+			)
+
+			// Check that the returned error is expected.
+			require.Equal(
+				t, tc.errorExpected, err, "unexpected err",
+			)
+
+			// If there's an error, no bytes should be written to
+			// the buf.
+			if tc.errorExpected != nil {
+				require.Equal(
+					t, 0, bytesWritten,
+					"bytes written should be 0",
+				)
+
+				// We also check that the old buf was not
+				// affected.
+				require.Equal(
+					t, oldBytesSize, buf.Len(),
+					"original buffer should not change",
+				)
+			} else {
+				expected := buf.Len() - oldBytesSize
+				require.Equal(
+					t, expected, bytesWritten,
+					"bytes written not matched",
+				)
+			}
+
+			// Finally, check the mocked methods are called as
+			// expected.
+			msg.AssertExpectations(t)
+		})
+	}
+}
 
 // BenchmarkWriteMessage benchmarks the performance of lnwire.WriteMessage. It
 // generates a test message for each of the lnwire.Message, calls the
