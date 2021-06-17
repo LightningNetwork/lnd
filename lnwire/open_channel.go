@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -150,7 +151,7 @@ var _ Message = (*OpenChannel)(nil)
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (o *OpenChannel) Encode(w io.Writer, pver uint32) error {
+func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	// Since the upfront script is encoded as a TLV record, concatenate it
 	// with the ExtraData, and write them as one.
 	tlvRecords, err := packShutdownScript(

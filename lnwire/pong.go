@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
 
 // PongPayload is a set of opaque bytes sent in response to a ping message.
 type PongPayload []byte
@@ -40,7 +43,7 @@ func (p *Pong) Decode(r io.Reader, pver uint32) error {
 // protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (p *Pong) Encode(w io.Writer, pver uint32) error {
+func (p *Pong) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		p.PongBytes,
 	)

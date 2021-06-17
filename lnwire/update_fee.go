@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 )
 
@@ -51,7 +52,7 @@ func (c *UpdateFee) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *UpdateFee) Encode(w io.Writer, pver uint32) error {
+func (c *UpdateFee) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		c.ChanID,
 		c.FeePerKw,

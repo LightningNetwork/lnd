@@ -87,7 +87,7 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Encode(w io.Writer, pver uint32) error {
+func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		a.NodeSig1,
 		a.NodeSig2,

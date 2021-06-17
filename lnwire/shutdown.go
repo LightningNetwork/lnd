@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 )
 
@@ -46,7 +47,7 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 // the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (s *Shutdown) Encode(w io.Writer, pver uint32) error {
+func (s *Shutdown) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w, s.ChannelID, s.Address, s.ExtraData)
 }
 

@@ -16,7 +16,7 @@ import (
 type ExtraOpaqueData []byte
 
 // Encode attempts to encode the raw extra bytes into the passed io.Writer.
-func (e *ExtraOpaqueData) Encode(w io.Writer) error {
+func (e *ExtraOpaqueData) Encode(w *bytes.Buffer) error {
 	eBytes := []byte((*e)[:])
 	if err := WriteElements(w, eBytes); err != nil {
 		return err

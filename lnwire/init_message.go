@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
 
 // Init is the first message reveals the features supported or required by this
 // node. Nodes wait for receipt of the other's features to simplify error
@@ -56,7 +59,7 @@ func (msg *Init) Decode(r io.Reader, pver uint32) error {
 // the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (msg *Init) Encode(w io.Writer, pver uint32) error {
+func (msg *Init) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		msg.GlobalFeatures,
 		msg.Features,

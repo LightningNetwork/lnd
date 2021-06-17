@@ -158,8 +158,8 @@ type Serializable interface {
 	Decode(io.Reader, uint32) error
 
 	// Encode converts object to the bytes stream and write it into the
-	// writer.
-	Encode(io.Writer, uint32) error
+	// write buffer.
+	Encode(*bytes.Buffer, uint32) error
 }
 
 // Message is an interface that defines a lightning wire protocol message. The

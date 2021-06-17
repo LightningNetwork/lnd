@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 )
 
@@ -64,7 +65,7 @@ func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) Encode(w io.Writer, pver uint32) error {
+func (a *AnnounceSignatures) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		a.ChannelID,
 		a.ShortChannelID,

@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -115,7 +116,7 @@ var _ Message = (*AcceptChannel)(nil)
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
+func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	// Since the upfront script is encoded as a TLV record, concatenate it
 	// with the ExtraData, and write them as one.
 	tlvRecords, err := packShutdownScript(

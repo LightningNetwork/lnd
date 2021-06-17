@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -75,7 +76,7 @@ var _ Message = (*ChannelReestablish)(nil)
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelReestablish) Encode(w io.Writer, pver uint32) error {
+func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 	err := WriteElements(w,
 		a.ChanID,
 		a.NextLocalCommitHeight,

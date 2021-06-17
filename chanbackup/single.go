@@ -265,8 +265,15 @@ func (s *Single) Serialize(w io.Writer) error {
 		return err
 	}
 
+	// TODO(yy): remove the type assertion when we finished refactoring db
+	// into using write buffer.
+	buf, ok := w.(*bytes.Buffer)
+	if !ok {
+		return fmt.Errorf("expect io.Writer to be *bytes.Buffer")
+	}
+
 	return lnwire.WriteElements(
-		w,
+		buf,
 		byte(s.Version),
 		uint16(len(singleBytes.Bytes())),
 		singleBytes.Bytes(),

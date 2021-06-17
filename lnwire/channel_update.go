@@ -159,7 +159,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
+func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 	err := WriteElements(w,
 		a.Signature,
 		a.ChainHash[:],

@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
@@ -40,7 +41,7 @@ var _ Message = (*FundingCreated)(nil)
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (f *FundingCreated) Encode(w io.Writer, pver uint32) error {
+func (f *FundingCreated) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(
 		w, f.PendingChannelID[:], f.FundingPoint, f.CommitSig,
 		f.ExtraData,

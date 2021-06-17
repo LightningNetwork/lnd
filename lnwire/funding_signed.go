@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
 
 // FundingSigned is sent from Bob (the responder) to Alice (the initiator)
 // after receiving the funding outpoint and her signature for Bob's version of
@@ -29,7 +32,7 @@ var _ Message = (*FundingSigned)(nil)
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (f *FundingSigned) Encode(w io.Writer, pver uint32) error {
+func (f *FundingSigned) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w, f.ChanID, f.CommitSig, f.ExtraData)
 }
 

@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -65,7 +66,7 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *RevokeAndAck) Encode(w io.Writer, pver uint32) error {
+func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		c.ChanID,
 		c.Revocation[:],

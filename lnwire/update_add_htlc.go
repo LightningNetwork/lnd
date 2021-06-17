@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 )
 
@@ -88,7 +89,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 // the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *UpdateAddHTLC) Encode(w io.Writer, pver uint32) error {
+func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		c.ChanID,
 		c.ID,

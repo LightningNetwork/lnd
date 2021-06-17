@@ -52,7 +52,7 @@ func (m *mockMsg) Decode(r io.Reader, pver uint32) error {
 	return args.Error(0)
 }
 
-func (m *mockMsg) Encode(w io.Writer, pver uint32) error {
+func (m *mockMsg) Encode(w *bytes.Buffer, pver uint32) error {
 	args := m.Called(w, pver)
 	return args.Error(0)
 }

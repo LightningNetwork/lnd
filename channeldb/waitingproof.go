@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"encoding/binary"
+	"fmt"
 	"sync"
 
 	"io"
@@ -232,7 +233,14 @@ func (p *WaitingProof) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := p.AnnounceSignatures.Encode(w, 0); err != nil {
+	// TODO(yy): remove the type assertion when we finished refactoring db
+	// into using write buffer.
+	buf, ok := w.(*bytes.Buffer)
+	if !ok {
+		return fmt.Errorf("expect io.Writer to be *bytes.Buffer")
+	}
+
+	if err := p.AnnounceSignatures.Encode(buf, 0); err != nil {
 		return err
 	}
 

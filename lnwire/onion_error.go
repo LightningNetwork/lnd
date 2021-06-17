@@ -419,7 +419,7 @@ func (f *FailIncorrectDetails) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailIncorrectDetails) Encode(w io.Writer, pver uint32) error {
+func (f *FailIncorrectDetails) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w, f.amount, f.height)
 }
 
@@ -485,7 +485,7 @@ func (f *FailInvalidOnionVersion) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailInvalidOnionVersion) Encode(w io.Writer, pver uint32) error {
+func (f *FailInvalidOnionVersion) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElement(w, f.OnionSHA256[:])
 }
 
@@ -519,7 +519,7 @@ func (f *FailInvalidOnionHmac) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailInvalidOnionHmac) Encode(w io.Writer, pver uint32) error {
+func (f *FailInvalidOnionHmac) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElement(w, f.OnionSHA256[:])
 }
 
@@ -561,7 +561,7 @@ func (f *FailInvalidOnionKey) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
+func (f *FailInvalidOnionKey) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElement(w, f.OnionSHA256[:])
 }
 
@@ -670,7 +670,9 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailTemporaryChannelFailure) Encode(w io.Writer, pver uint32) error {
+func (f *FailTemporaryChannelFailure) Encode(w *bytes.Buffer,
+	pver uint32) error {
+
 	var payload []byte
 	if f.Update != nil {
 		var bw bytes.Buffer
@@ -749,7 +751,7 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailAmountBelowMinimum) Encode(w io.Writer, pver uint32) error {
+func (f *FailAmountBelowMinimum) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteElement(w, f.HtlcMsat); err != nil {
 		return err
 	}
@@ -817,7 +819,7 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailFeeInsufficient) Encode(w io.Writer, pver uint32) error {
+func (f *FailFeeInsufficient) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteElement(w, f.HtlcMsat); err != nil {
 		return err
 	}
@@ -885,7 +887,7 @@ func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
+func (f *FailIncorrectCltvExpiry) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteElement(w, f.CltvExpiry); err != nil {
 		return err
 	}
@@ -942,7 +944,7 @@ func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailExpiryTooSoon) Encode(w io.Writer, pver uint32) error {
+func (f *FailExpiryTooSoon) Encode(w *bytes.Buffer, pver uint32) error {
 	return writeOnionErrorChanUpdate(w, &f.Update, pver)
 }
 
@@ -1006,7 +1008,7 @@ func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailChannelDisabled) Encode(w io.Writer, pver uint32) error {
+func (f *FailChannelDisabled) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteElement(w, f.Flags); err != nil {
 		return err
 	}
@@ -1056,7 +1058,9 @@ func (f *FailFinalIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailFinalIncorrectCltvExpiry) Encode(w io.Writer, pver uint32) error {
+func (f *FailFinalIncorrectCltvExpiry) Encode(w *bytes.Buffer,
+	pver uint32) error {
+
 	return WriteElement(w, f.CltvExpiry)
 }
 
@@ -1102,7 +1106,9 @@ func (f *FailFinalIncorrectHtlcAmount) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailFinalIncorrectHtlcAmount) Encode(w io.Writer, pver uint32) error {
+func (f *FailFinalIncorrectHtlcAmount) Encode(w *bytes.Buffer,
+	pver uint32) error {
+
 	return WriteElement(w, f.IncomingHTLCAmount)
 }
 
@@ -1177,7 +1183,7 @@ func (f *InvalidOnionPayload) Decode(r io.Reader, pver uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *InvalidOnionPayload) Encode(w io.Writer, pver uint32) error {
+func (f *InvalidOnionPayload) Encode(w *bytes.Buffer, pver uint32) error {
 	var buf [8]byte
 	if err := tlv.WriteVarInt(w, f.Type, &buf); err != nil {
 		return err
@@ -1263,7 +1269,7 @@ func DecodeFailureMessage(r io.Reader, pver uint32) (FailureMessage, error) {
 
 // EncodeFailure encodes, including the necessary onion failure header
 // information.
-func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
+func EncodeFailure(w *bytes.Buffer, failure FailureMessage, pver uint32) error {
 	var failureMessageBuffer bytes.Buffer
 
 	err := EncodeFailureMessage(&failureMessageBuffer, failure, pver)
@@ -1293,7 +1299,9 @@ func EncodeFailure(w io.Writer, failure FailureMessage, pver uint32) error {
 
 // EncodeFailureMessage encodes just the failure message without adding a length
 // and padding the message for the onion protocol.
-func EncodeFailureMessage(w io.Writer, failure FailureMessage, pver uint32) error {
+func EncodeFailureMessage(w *bytes.Buffer,
+	failure FailureMessage, pver uint32) error {
+
 	// First, we'll write out the error code itself into the failure
 	// buffer.
 	var codeBytes [2]byte
@@ -1401,7 +1409,7 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 // writeOnionErrorChanUpdate writes out a ChannelUpdate using the onion error
 // format. The format is that we first write out the true serialized length of
 // the channel update, followed by the serialized channel update itself.
-func writeOnionErrorChanUpdate(w io.Writer, chanUpdate *ChannelUpdate,
+func writeOnionErrorChanUpdate(w *bytes.Buffer, chanUpdate *ChannelUpdate,
 	pver uint32) error {
 
 	// First, we encode the channel update in a temporary buffer in order

@@ -291,7 +291,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (q *QueryShortChanIDs) Encode(w io.Writer, pver uint32) error {
+func (q *QueryShortChanIDs) Encode(w *bytes.Buffer, pver uint32) error {
 	// First, we'll write out the chain hash.
 	err := WriteElements(w, q.ChainHash[:])
 	if err != nil {
@@ -310,7 +310,7 @@ func (q *QueryShortChanIDs) Encode(w io.Writer, pver uint32) error {
 
 // encodeShortChanIDs encodes the passed short channel ID's into the passed
 // io.Writer, respecting the specified encoding type.
-func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
+func encodeShortChanIDs(w *bytes.Buffer, encodingType ShortChanIDEncoding,
 	shortChanIDs []ShortChannelID, noSort bool) error {
 
 	// For both of the current encoding types, the channel ID's are to be
@@ -360,27 +360,38 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 	// TODO(roasbeef): assumes the caller knows the proper chunk size to
 	// pass to avoid bin-packing here
 	case EncodingSortedZlib:
-		// We'll make a new buffer, then wrap that with a zlib writer
-		// so we can write directly to the buffer and encode in a
-		// streaming manner.
-		var buf bytes.Buffer
-		zlibWriter := zlib.NewWriter(&buf)
-
 		// If we don't have anything at all to write, then we'll write
 		// an empty payload so we don't include things like the zlib
 		// header when the remote party is expecting no actual short
 		// channel IDs.
 		var compressedPayload []byte
 		if len(shortChanIDs) > 0 {
+			// We'll make a new write buffer to hold the bytes of
+			// shortChanIDs.
+			var wb bytes.Buffer
+
 			// Next, we'll write out all the channel ID's directly
 			// into the zlib writer, which will do compressing on
 			// the fly.
 			for _, chanID := range shortChanIDs {
-				err := WriteElements(zlibWriter, chanID)
+				err := WriteElements(&wb, chanID)
 				if err != nil {
-					return fmt.Errorf("unable to write short chan "+
-						"ID: %v", err)
+					return fmt.Errorf(
+						"unable to write short chan "+
+							"ID: %v", err,
+					)
 				}
+			}
+
+			// With shortChanIDs written into wb, we'll create a
+			// zlib writer and write all the compressed bytes.
+			var zlibBuffer bytes.Buffer
+			zlibWriter := zlib.NewWriter(&zlibBuffer)
+
+			if _, err := zlibWriter.Write(wb.Bytes()); err != nil {
+				return fmt.Errorf(
+					"unable to write compressed short chan"+
+						"ID: %w", err)
 			}
 
 			// Now that we've written all the elements, we'll
@@ -391,7 +402,7 @@ func encodeShortChanIDs(w io.Writer, encodingType ShortChanIDEncoding,
 					"compression: %v", err)
 			}
 
-			compressedPayload = buf.Bytes()
+			compressedPayload = zlibBuffer.Bytes()
 		}
 
 		// Now that we have all the items compressed, we can compute

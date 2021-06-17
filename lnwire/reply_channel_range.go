@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 	"math"
 
@@ -85,7 +86,7 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *ReplyChannelRange) Encode(w io.Writer, pver uint32) error {
+func (c *ReplyChannelRange) Encode(w *bytes.Buffer, pver uint32) error {
 	err := WriteElements(w,
 		c.ChainHash[:],
 		c.FirstBlockHeight,

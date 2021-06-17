@@ -124,7 +124,7 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
 // observing the protocol version specified.
 //
-func (a *NodeAnnouncement) Encode(w io.Writer, pver uint32) error {
+func (a *NodeAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
 	return WriteElements(w,
 		a.Signature,
 		a.Features,
