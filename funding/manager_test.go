@@ -350,6 +350,21 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 	chainedAcceptor := chanacceptor.NewChainedAcceptor()
 
+	// Create the test node before funding manager so we can use the go
+	// channels inside the test node in funding manager.
+	testNode := &testNode{
+		privKey:         privKey,
+		msgChan:         sentMessages,
+		newChannels:     make(chan *newChannelMsg),
+		announceChan:    sentAnnouncements,
+		publTxChan:      publTxChan,
+		mockNotifier:    chainNotifier,
+		mockChanEvent:   evt,
+		testDir:         tempTestDir,
+		shutdownChannel: shutdownChan,
+		addr:            addr,
+	}
+
 	fundingCfg := Config{
 		IDKey:        privKey.PubKey(),
 		Wallet:       lnw,
@@ -429,7 +444,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil
 		},
 		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
-			publTxChan <- txn
+			testNode.publTxChan <- txn
 			return nil
 		},
 		UpdateLabel: func(chainhash.Hash, string) error {
@@ -458,25 +473,14 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		t.Fatalf("failed starting fundingManager: %v", err)
 	}
 
-	testNode := &testNode{
-		privKey:         privKey,
-		msgChan:         sentMessages,
-		newChannels:     make(chan *newChannelMsg),
-		announceChan:    sentAnnouncements,
-		publTxChan:      publTxChan,
-		fundingMgr:      f,
-		mockNotifier:    chainNotifier,
-		mockChanEvent:   evt,
-		testDir:         tempTestDir,
-		shutdownChannel: shutdownChan,
-		addr:            addr,
-	}
-
 	f.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connectedChan chan<- lnpeer.Peer) {
 
 		connectedChan <- testNode.remotePeer
 	}
+
+	// Assign the fundingManager
+	testNode.fundingMgr = f
 
 	return testNode, nil
 }
@@ -491,7 +495,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	aliceMsgChan := make(chan lnwire.Message)
 	aliceAnnounceChan := make(chan lnwire.Message)
 	shutdownChan := make(chan struct{})
-	publishChan := make(chan *wire.MsgTx, 10)
+	alice.publTxChan = make(chan *wire.MsgTx, 10)
 
 	oldCfg := alice.fundingMgr.cfg
 
@@ -536,10 +540,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		DefaultMinHtlcIn:       5,
 		RequiredRemoteMaxValue: oldCfg.RequiredRemoteMaxValue,
-		PublishTransaction: func(txn *wire.MsgTx, _ string) error {
-			publishChan <- txn
-			return nil
-		},
+		PublishTransaction:     oldCfg.PublishTransaction,
 		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
 		},
@@ -554,7 +555,6 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	alice.fundingMgr = f
 	alice.msgChan = aliceMsgChan
 	alice.announceChan = aliceAnnounceChan
-	alice.publTxChan = publishChan
 	alice.shutdownChannel = shutdownChan
 
 	if err = f.Start(); err != nil {
@@ -641,6 +641,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) (
 	*wire.OutPoint, *wire.MsgTx) {
 
+	t.Helper()
+
 	publ := fundChannel(
 		t, alice, bob, localFundingAmt, pushAmt, false, numConfs,
 		updateChan, announceChan,
@@ -657,6 +659,28 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, subtractFees bool, numConfs uint32,
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) *wire.MsgTx {
+
+	t.Helper()
+
+	acceptChannelResponse := initChannel(
+		t, alice, bob, localFundingAmt, pushAmt,
+		subtractFees, updateChan, announceChan,
+	)
+
+	signChannel(t, alice, bob, acceptChannelResponse)
+
+	return finishOpenChannel(t, alice, bob, updateChan)
+
+}
+
+// initChannel takes the funding process to the point where an
+// acceptChannelResponse is returned from Bob.
+func initChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
+	pushAmt btcutil.Amount, subtractFees bool,
+	updateChan chan *lnrpc.OpenStatusUpdate,
+	announceChan bool) lnwire.Message {
+
+	t.Helper()
 
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
@@ -710,6 +734,17 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	assertNumPendingReservations(t, alice, bobPubKey, 1)
 	assertNumPendingReservations(t, bob, alicePubKey, 1)
 
+	return acceptChannelResponse
+}
+
+// signChannel starts when Bob has returned an acceptChannelResponse, takes
+// the funding process to the point where the funding transaction is signed by
+// both parties.
+func signChannel(t *testing.T, alice, bob *testNode,
+	acceptChannelResponse lnwire.Message) {
+
+	t.Helper()
+
 	// Forward the response to Alice.
 	alice.fundingMgr.ProcessFundingMsg(acceptChannelResponse, bob)
 
@@ -728,6 +763,15 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 
 	// Forward the signature to Alice.
 	alice.fundingMgr.ProcessFundingMsg(fundingSigned, bob)
+}
+
+// finishOpenChannel starts when both parties have signed the funding
+// transction and takes the funding process to the point where the funding
+// transaction is confirmed on-chain. Returns the funding tx.
+func finishOpenChannel(t *testing.T, alice, bob *testNode,
+	updateChan chan *lnrpc.OpenStatusUpdate) *wire.MsgTx {
+
+	t.Helper()
 
 	// After Alice processes the singleFundingSignComplete message, she will
 	// broadcast the funding transaction to the network. We expect to get a
@@ -739,7 +783,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
 	}
 
-	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	_, ok := pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	if !ok {
 		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
 	}
@@ -3519,4 +3563,116 @@ func TestWumboChannelConfig(t *testing.T) {
 	openChanMsg = expectOpenChannelMsg(t, alice.msgChan)
 	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
 	assertFundingMsgSent(t, bob.msgChan, "AcceptChannel")
+}
+
+// TestAbortFundingOnPublishTransactionErr checks when the error returned from
+// PublishTransaction is neither nil or ErrDoubleSpend, the funding flow would
+// be aborted and the pending channel will be deleted.
+func TestAbortFundingOnPublishTransactionErr(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+
+	// Replace the default PublishTransaction with the following, which
+	// returns a unknown error that causes the pending channel to be
+	// removed.
+	publishTxWithUnknowErr := func(txn *wire.MsgTx, _ string) error {
+		alice.publTxChan <- txn
+		return errors.New("unknown")
+	}
+	alice.fundingMgr.cfg.PublishTransaction = publishTxWithUnknowErr
+
+	// Process the funding flow to the point where the channel is accepted
+	// by Bob.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	acceptChanResp := initChannel(
+		t, alice, bob, 500000, 0, false, updateChan, true,
+	)
+
+	// Alice and Bob now should both have pending reservations for this
+	// channel active.
+	assertNumPendingReservations(t, alice, bobPubKey, 1)
+	assertNumPendingReservations(t, bob, alicePubKey, 1)
+
+	// Process the funding flow where the FundingSigned is exchanged. Alice
+	// would fail to sign because of the unknown error returned from
+	// PublishTransaction.
+	signChannel(t, alice, bob, acceptChanResp)
+
+	// After Alice processes the singleFundingSignComplete message, she will
+	// not be able to broadcast the funding transaction to the network. We
+	// expect to NOT get a channel update saying the channel is pending.
+	select {
+	case <-updateChan:
+		t.Fatalf("alice should not send OpenStatusUpdate_ChanPending")
+	case <-time.After(time.Second * 1):
+	}
+
+	// Alice should have sent an Error message to Bob.
+	assertErrorSent(t, alice.msgChan)
+
+	// Finally, make sure neither have active reservation for the channel
+	// now pending open in the database.
+	assertNumPendingReservations(t, alice, bobPubKey, 0)
+	assertNumPendingReservations(t, bob, alicePubKey, 0)
+
+	// Tear down and setup nodes to test the behavior on restart.
+	tearDownFundingManagers(t, alice, bob)
+	alice, bob = setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	alice.fundingMgr.cfg.PublishTransaction = publishTxWithUnknowErr
+
+	// Process the funding flow to the point where the channel is accepted
+	// by Bob.
+	initChannel(t, alice, bob, 500000, 0, false, updateChan, true)
+
+	// Alice now should have pending reservations for this channel active.
+	assertNumPendingReservations(t, alice, bobPubKey, 1)
+
+	// Restart Alice to trigger PublishTransaction again.
+	recreateAliceFundingManager(t, alice)
+
+	// The pending reservation should be removed now because the channel is
+	// removed.
+	assertNumPendingReservations(t, alice, bobPubKey, 0)
+}
+
+// TestContinueFundingOnPublishTransactionErr tests when the error returned
+// from PublishTransaction is ErrDoubleSpend, the funding flow would not stop.
+func TestContinueFundingOnPublishTransactionErr(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	defer tearDownFundingManagers(t, alice, bob)
+
+	// Replace the default PublishTransaction with the following, which
+	// returns a ErrDoubleSpend.
+	publishTxWithErrDoubleSpend := func(txn *wire.MsgTx, _ string) error {
+		alice.publTxChan <- txn
+		return lnwallet.ErrDoubleSpend
+	}
+	alice.fundingMgr.cfg.PublishTransaction = publishTxWithErrDoubleSpend
+
+	// We will consume the channel updates as we go, so no buffering is
+	// needed.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	// Run through the process of opening the channel, up until the funding
+	// transaction is broadcasted.
+	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+
+	// Both Alice and Bob should be waiting for the channel to open.
+	assertNumPendingChannelsRemains(t, alice, 1)
+	assertNumPendingChannelsRemains(t, bob, 1)
+
+	// Alice should not send Error message.
+	assertErrorNotSent(t, alice.msgChan)
+
+	// Restart Alice to trigger PublishTransaction again.
+	recreateAliceFundingManager(t, alice)
+
+	// Again, both Alice and Bob should be waiting for the channel to open.
+	assertNumPendingChannelsRemains(t, alice, 1)
+	assertNumPendingChannelsRemains(t, bob, 1)
 }

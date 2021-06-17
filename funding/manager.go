@@ -646,16 +646,17 @@ func (f *Manager) start() error {
 					labels.LabelTypeChannelOpen, nil,
 				)
 
+				// Publish the funding transaction and check
+				// the err returned. We will remove the pending
+				// channel if the returned error is not
+				// ErrDoubleSpend, indicating the transaction
+				// itself is not valid.
 				err = f.cfg.PublishTransaction(
 					channel.FundingTxn, label,
 				)
-				if err != nil {
-					log.Errorf("Unable to rebroadcast "+
-						"funding tx %x for "+
-						"ChannelPoint(%v): %v",
-						fundingTxBuf.Bytes(),
-						channel.FundingOutpoint, err)
-				}
+				f.abortOnPublishTransactionErr(
+					channel, fundingTxBuf, err,
+				)
 			}
 		}
 
@@ -813,6 +814,7 @@ func (f *Manager) reservationCoordinator() {
 
 		case fmsg := <-f.fundingMsgs:
 			switch msg := fmsg.msg.(type) {
+
 			case *lnwire.OpenChannel:
 				f.handleFundingOpen(fmsg.peer, msg)
 			case *lnwire.AcceptChannel:
@@ -1961,6 +1963,90 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	go f.advanceFundingState(completeChan, pendingChanID, nil)
 }
 
+// failPendingChannel creates a close summary and closes the channel if it's
+// initiated by us and it's in pending state.
+func (f *Manager) failPendingChannel(pendingChan *channeldb.OpenChannel) error {
+	// Check the channel is pending.
+	if !pendingChan.IsPending {
+		return fmt.Errorf("cannot fail a non-pending channel: %v",
+			pendingChan.FundingOutpoint,
+		)
+	}
+
+	// Check we are the initiator.
+	if !pendingChan.IsInitiator {
+		return fmt.Errorf("cannot fail a remote pending channel: %v",
+			pendingChan.FundingOutpoint,
+		)
+	}
+
+	// Create the close summary.
+	localBalance := pendingChan.LocalCommitment.LocalBalance.ToSatoshis()
+	closeInfo := &channeldb.ChannelCloseSummary{
+		ChanPoint:               pendingChan.FundingOutpoint,
+		ChainHash:               pendingChan.ChainHash,
+		RemotePub:               pendingChan.IdentityPub,
+		CloseType:               channeldb.FundingCanceled,
+		Capacity:                pendingChan.Capacity,
+		SettledBalance:          localBalance,
+		RemoteCurrentRevocation: pendingChan.RemoteCurrentRevocation,
+		RemoteNextRevocation:    pendingChan.RemoteNextRevocation,
+		LocalChanConfig:         pendingChan.LocalChanCfg,
+	}
+
+	// Close the channel with us as the initiator because we are
+	// deciding to exit the funding flow due to an internal error.
+	if err := pendingChan.CloseChannel(
+		closeInfo, channeldb.ChanStatusLocalCloseInitiator,
+	); err != nil {
+		log.Errorf("Failed closing channel %v: %v",
+			pendingChan.FundingOutpoint, err)
+		return err
+	}
+	return nil
+}
+
+// abortOnPublishTransactionErr decides whether to continue the funding flow
+// based on the error returned from PublishTransaction. The channel will be
+// closed if an unexpected error is found.
+func (f *Manager) abortOnPublishTransactionErr(ch *channeldb.OpenChannel,
+	fundingTxBuf bytes.Buffer, err error) bool {
+
+	// Return early if there's no error.
+	if err == nil {
+		return false
+	}
+
+	log.Errorf("Unable to broadcast funding tx %x for "+
+		"ChannelPoint(%v): %v", fundingTxBuf.Bytes(),
+		ch.FundingOutpoint, err)
+
+	// Note that the ErrDoubleSpend actually wraps two erros returned from
+	// the btcwallet, ErrDoubleSpend and ErrReplacement.
+	if err == lnwallet.ErrDoubleSpend {
+		// We failed to broadcast the funding transaction, but watch
+		// the channel regardless, in case the transaction made it to
+		// the network. We will retry broadcast at startup.
+		//
+		// TODO(halseth): retry more often? Handle with CPFP?
+		// Just delete from the DB?
+		return false
+	}
+
+	if err := f.failPendingChannel(ch); err != nil {
+		// Not only the we failed to publish the funding transaction,
+		// the channel close is also failed. We will then continue the
+		// funding flow to retry the channel close next time.
+		log.Errorf("Unable to close channel for ChannelPoint(%v): %v",
+			fundingTxBuf.Bytes(), err,
+		)
+
+		return false
+	}
+
+	return true
+}
+
 // handleFundingSigned processes the final message received in a single funder
 // workflow. Once this message is processed, the funding transaction is
 // broadcast. Once the funding transaction reaches a sufficient number of
@@ -2051,19 +2137,19 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 			labels.LabelTypeChannelOpen, nil,
 		)
 
+		// Publish the funding transaction and check the err returned.
+		// We will abort the funding flow if the returned error is not
+		// ErrDoubleSpend, indicating the transaction itself is not
+		// valid.
 		err = f.cfg.PublishTransaction(fundingTx, label)
-		if err != nil {
-			log.Errorf("Unable to broadcast funding tx %x for "+
-				"ChannelPoint(%v): %v", fundingTxBuf.Bytes(),
-				completeChan.FundingOutpoint, err)
+		if f.abortOnPublishTransactionErr(completeChan, fundingTxBuf,
+			err) {
 
-			// We failed to broadcast the funding transaction, but
-			// watch the channel regardless, in case the
-			// transaction made it to the network. We will retry
-			// broadcast at startup.
-			//
-			// TODO(halseth): retry more often? Handle with CPFP?
-			// Just delete from the DB?
+			// Notify our peer that the funding is failed. Note
+			// that the peer will timeout this channel even without
+			// being notified by us.
+			f.failFundingFlow(peer, pendingChanID, err)
+			return
 		}
 	}
 
