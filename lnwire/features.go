@@ -91,7 +91,7 @@ const (
 	// attacks on the receiver of a payment.
 	PaymentAddrOptional FeatureBit = 15
 
-	// MPPOptional is a required feature bit that signals that the receiver
+	// MPPRequired is a required feature bit that signals that the receiver
 	// of a payment requires settlement of an invoice with more than one
 	// HTLC.
 	MPPRequired FeatureBit = 16
@@ -124,7 +124,7 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxRequired FeatureBit = 22
 
-	// AnchorsZeroFeeHtlcTxRequired is an optional feature bit that signals
+	// AnchorsZeroFeeHtlcTxOptional is an optional feature bit that signals
 	// that the node supports channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
