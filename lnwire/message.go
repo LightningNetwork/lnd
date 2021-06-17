@@ -12,10 +12,6 @@ import (
 	"io"
 )
 
-// MaxMessagePayload is the maximum bytes a message can be regardless of other
-// individual limits imposed by messages themselves.
-const MaxMessagePayload = 65535 // 65KB
-
 // MessageType is the unique 2 byte big-endian integer that indicates the type
 // of message on the wire. All messages have a very simple header which
 // consists simply of 2-byte message type. We omit a length field, and checksum
