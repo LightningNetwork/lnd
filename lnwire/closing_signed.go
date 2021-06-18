@@ -65,9 +65,19 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(
-		w, c.ChannelID, c.FeeSatoshis, c.Signature, c.ExtraData,
-	)
+	if err := WriteChannelID(w, c.ChannelID); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, c.FeeSatoshis); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, c.Signature); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

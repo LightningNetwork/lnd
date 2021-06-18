@@ -105,10 +105,11 @@ func (c *Error) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *Error) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		c.ChanID,
-		c.Data,
-	)
+	if err := WriteBytes(w, c.ChanID[:]); err != nil {
+		return err
+	}
+
+	return WriteErrorData(w, c.Data)
 }
 
 // MsgType returns the integer uniquely identifying an Error message on the

@@ -60,11 +60,15 @@ func (msg *Init) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		msg.GlobalFeatures,
-		msg.Features,
-		msg.ExtraData,
-	)
+	if err := WriteRawFeatureVector(w, msg.GlobalFeatures); err != nil {
+		return err
+	}
+
+	if err := WriteRawFeatureVector(w, msg.Features); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, msg.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

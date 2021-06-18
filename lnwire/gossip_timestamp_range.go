@@ -59,12 +59,19 @@ func (g *GossipTimestampRange) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (g *GossipTimestampRange) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		g.ChainHash[:],
-		g.FirstTimestamp,
-		g.TimestampRange,
-		g.ExtraData,
-	)
+	if err := WriteBytes(w, g.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, g.FirstTimestamp); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, g.TimestampRange); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, g.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

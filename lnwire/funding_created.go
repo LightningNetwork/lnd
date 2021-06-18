@@ -42,10 +42,19 @@ var _ Message = (*FundingCreated)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingCreated) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(
-		w, f.PendingChannelID[:], f.FundingPoint, f.CommitSig,
-		f.ExtraData,
-	)
+	if err := WriteBytes(w, f.PendingChannelID[:]); err != nil {
+		return err
+	}
+
+	if err := WriteOutPoint(w, f.FundingPoint); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, f.CommitSig); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, f.ExtraData)
 }
 
 // Decode deserializes the serialized FundingCreated stored in the passed

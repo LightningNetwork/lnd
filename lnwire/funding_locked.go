@@ -60,11 +60,15 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *FundingLocked) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		c.ChanID,
-		c.NextPerCommitmentPoint,
-		c.ExtraData,
-	)
+	if err := WriteChannelID(w, c.ChanID); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, c.NextPerCommitmentPoint); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a
