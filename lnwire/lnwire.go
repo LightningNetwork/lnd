@@ -76,6 +76,9 @@ func (a addressType) AddrLen() uint16 {
 
 // WriteElement is a one-stop shop to write the big endian representation of
 // any element which is to be serialized for the wire protocol.
+//
+// TODO(yy): rm this method once we finish dereferencing it from other
+// packages.
 func WriteElement(w *bytes.Buffer, element interface{}) error {
 	switch e := element.(type) {
 	case NodeAlias:
@@ -433,6 +436,9 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 
 // WriteElements is writes each element in the elements slice to the passed
 // buffer using WriteElement.
+//
+// TODO(yy): rm this method once we finish dereferencing it from other
+// packages.
 func WriteElements(buf *bytes.Buffer, elements ...interface{}) error {
 	for _, element := range elements {
 		err := WriteElement(buf, element)
@@ -823,8 +829,11 @@ func ReadElement(r io.Reader, element interface{}) error {
 		length := binary.BigEndian.Uint16(addrLen[:])
 
 		var addrBytes [deliveryAddressMaxSize]byte
+
 		if length > deliveryAddressMaxSize {
-			return fmt.Errorf("cannot read %d bytes into addrBytes", length)
+			return fmt.Errorf(
+				"cannot read %d bytes into addrBytes", length,
+			)
 		}
 		if _, err = io.ReadFull(r, addrBytes[:length]); err != nil {
 			return err
