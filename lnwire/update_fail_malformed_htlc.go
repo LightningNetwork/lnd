@@ -54,14 +54,26 @@ func (c *UpdateFailMalformedHTLC) Decode(r io.Reader, pver uint32) error {
 // io.Writer observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *UpdateFailMalformedHTLC) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		c.ChanID,
-		c.ID,
-		c.ShaOnionBlob[:],
-		c.FailureCode,
-		c.ExtraData,
-	)
+func (c *UpdateFailMalformedHTLC) Encode(w *bytes.Buffer,
+	pver uint32) error {
+
+	if err := WriteChannelID(w, c.ChanID); err != nil {
+		return err
+	}
+
+	if err := WriteUint64(w, c.ID); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, c.ShaOnionBlob[:]); err != nil {
+		return err
+	}
+
+	if err := WriteFailCode(w, c.FailureCode); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

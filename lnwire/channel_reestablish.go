@@ -77,12 +77,15 @@ var _ Message = (*ChannelReestablish)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
-	err := WriteElements(w,
-		a.ChanID,
-		a.NextLocalCommitHeight,
-		a.RemoteCommitTailHeight,
-	)
-	if err != nil {
+	if err := WriteChannelID(w, a.ChanID); err != nil {
+		return err
+	}
+
+	if err := WriteUint64(w, a.NextLocalCommitHeight); err != nil {
+		return err
+	}
+
+	if err := WriteUint64(w, a.RemoteCommitTailHeight); err != nil {
 		return err
 	}
 
@@ -94,15 +97,18 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 		//
 		// NOTE: This is here primarily for the quickcheck tests, in
 		// practice, we'll always populate this field.
-		return WriteElements(w, a.ExtraData)
+		return WriteBytes(w, a.ExtraData)
 	}
 
 	// Otherwise, we'll write out the remaining elements.
-	return WriteElements(w,
-		a.LastRemoteCommitSecret[:],
-		a.LocalUnrevokedCommitPoint,
-		a.ExtraData,
-	)
+	if err := WriteBytes(w, a.LastRemoteCommitSecret[:]); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.LocalUnrevokedCommitPoint); err != nil {
+		return err
+	}
+	return WriteBytes(w, a.ExtraData)
 }
 
 // Decode deserializes a serialized ChannelReestablish stored in the passed

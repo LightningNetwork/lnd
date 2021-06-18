@@ -87,22 +87,28 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ReplyChannelRange) Encode(w *bytes.Buffer, pver uint32) error {
-	err := WriteElements(w,
-		c.ChainHash[:],
-		c.FirstBlockHeight,
-		c.NumBlocks,
-		c.Complete,
-	)
+	if err := WriteBytes(w, c.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, c.FirstBlockHeight); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, c.NumBlocks); err != nil {
+		return err
+	}
+
+	if err := WriteUint8(w, c.Complete); err != nil {
+		return err
+	}
+
+	err := encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, c.noSort)
 	if err != nil {
 		return err
 	}
 
-	err = encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, c.noSort)
-	if err != nil {
-		return err
-	}
-
-	return c.ExtraData.Encode(w)
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

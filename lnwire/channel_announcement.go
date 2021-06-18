@@ -88,20 +88,51 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		a.NodeSig1,
-		a.NodeSig2,
-		a.BitcoinSig1,
-		a.BitcoinSig2,
-		a.Features,
-		a.ChainHash[:],
-		a.ShortChannelID,
-		a.NodeID1,
-		a.NodeID2,
-		a.BitcoinKey1,
-		a.BitcoinKey2,
-		a.ExtraOpaqueData,
-	)
+	if err := WriteSig(w, a.NodeSig1); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, a.NodeSig2); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, a.BitcoinSig1); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, a.BitcoinSig2); err != nil {
+		return err
+	}
+
+	if err := WriteRawFeatureVector(w, a.Features); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteShortChannelID(w, a.ShortChannelID); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.NodeID1[:]); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.NodeID2[:]); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.BitcoinKey1[:]); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.BitcoinKey2[:]); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, a.ExtraOpaqueData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -116,20 +147,40 @@ func (a *ChannelAnnouncement) MsgType() MessageType {
 // be signed.
 func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
-	var w bytes.Buffer
-	err := WriteElements(&w,
-		a.Features,
-		a.ChainHash[:],
-		a.ShortChannelID,
-		a.NodeID1,
-		a.NodeID2,
-		a.BitcoinKey1,
-		a.BitcoinKey2,
-		a.ExtraOpaqueData,
-	)
-	if err != nil {
+	b := make([]byte, 0, MaxMsgBody)
+	buf := bytes.NewBuffer(b)
+
+	if err := WriteRawFeatureVector(buf, a.Features); err != nil {
 		return nil, err
 	}
 
-	return w.Bytes(), nil
+	if err := WriteBytes(buf, a.ChainHash[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteShortChannelID(buf, a.ShortChannelID); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.NodeID1[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.NodeID2[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.BitcoinKey1[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.BitcoinKey2[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.ExtraOpaqueData); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
