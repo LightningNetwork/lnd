@@ -278,5 +278,5 @@ func (f *mockFailIncorrectDetailsNoHeight) Decode(r io.Reader, pver uint32) erro
 func (f *mockFailIncorrectDetailsNoHeight) Encode(w *bytes.Buffer,
 	pver uint32) error {
 
-	return WriteElement(w, f.amount)
+	return WriteUint64(w, f.amount)
 }

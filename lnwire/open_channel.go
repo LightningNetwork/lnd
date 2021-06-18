@@ -161,27 +161,80 @@ func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteElements(w,
-		o.ChainHash[:],
-		o.PendingChannelID[:],
-		o.FundingAmount,
-		o.PushAmount,
-		o.DustLimit,
-		o.MaxValueInFlight,
-		o.ChannelReserve,
-		o.HtlcMinimum,
-		o.FeePerKiloWeight,
-		o.CsvDelay,
-		o.MaxAcceptedHTLCs,
-		o.FundingKey,
-		o.RevocationPoint,
-		o.PaymentPoint,
-		o.DelayedPaymentPoint,
-		o.HtlcPoint,
-		o.FirstCommitmentPoint,
-		o.ChannelFlags,
-		tlvRecords,
-	)
+	if err := WriteBytes(w, o.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, o.PendingChannelID[:]); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, o.FundingAmount); err != nil {
+		return err
+	}
+
+	if err := WriteMilliSatoshi(w, o.PushAmount); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, o.DustLimit); err != nil {
+		return err
+	}
+
+	if err := WriteMilliSatoshi(w, o.MaxValueInFlight); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, o.ChannelReserve); err != nil {
+		return err
+	}
+
+	if err := WriteMilliSatoshi(w, o.HtlcMinimum); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, o.FeePerKiloWeight); err != nil {
+		return err
+	}
+
+	if err := WriteUint16(w, o.CsvDelay); err != nil {
+		return err
+	}
+
+	if err := WriteUint16(w, o.MaxAcceptedHTLCs); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, o.FundingKey); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, o.RevocationPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, o.PaymentPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, o.DelayedPaymentPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, o.HtlcPoint); err != nil {
+		return err
+
+	}
+
+	if err := WritePublicKey(w, o.FirstCommitmentPoint); err != nil {
+		return err
+	}
+
+	if err := WriteFundingFlag(w, o.ChannelFlags); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvRecords)
 }
 
 // Decode deserializes the serialized OpenChannel stored in the passed

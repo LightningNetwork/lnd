@@ -124,17 +124,37 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 // Encode serializes the target NodeAnnouncement into the passed io.Writer
 // observing the protocol version specified.
 //
+// This is part of the lnwire.Message interface.
 func (a *NodeAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		a.Signature,
-		a.Features,
-		a.Timestamp,
-		a.NodeID,
-		a.RGBColor,
-		a.Alias,
-		a.Addresses,
-		a.ExtraOpaqueData,
-	)
+	if err := WriteSig(w, a.Signature); err != nil {
+		return err
+	}
+
+	if err := WriteRawFeatureVector(w, a.Features); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, a.Timestamp); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.NodeID[:]); err != nil {
+		return err
+	}
+
+	if err := WriteColorRGBA(w, a.RGBColor); err != nil {
+		return err
+	}
+
+	if err := WriteNodeAlias(w, a.Alias); err != nil {
+		return err
+	}
+
+	if err := WriteNetAddrs(w, a.Addresses); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, a.ExtraOpaqueData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -149,19 +169,36 @@ func (a *NodeAnnouncement) MsgType() MessageType {
 func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 
 	// We should not include the signatures itself.
-	var w bytes.Buffer
-	err := WriteElements(&w,
-		a.Features,
-		a.Timestamp,
-		a.NodeID,
-		a.RGBColor,
-		a.Alias[:],
-		a.Addresses,
-		a.ExtraOpaqueData,
-	)
-	if err != nil {
+	buffer := make([]byte, 0, MaxMsgBody)
+	buf := bytes.NewBuffer(buffer)
+
+	if err := WriteRawFeatureVector(buf, a.Features); err != nil {
 		return nil, err
 	}
 
-	return w.Bytes(), nil
+	if err := WriteUint32(buf, a.Timestamp); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.NodeID[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteColorRGBA(buf, a.RGBColor); err != nil {
+		return nil, err
+	}
+
+	if err := WriteNodeAlias(buf, a.Alias); err != nil {
+		return nil, err
+	}
+
+	if err := WriteNetAddrs(buf, a.Addresses); err != nil {
+		return nil, err
+	}
+
+	if err := WriteBytes(buf, a.ExtraOpaqueData); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

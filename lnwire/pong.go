@@ -44,9 +44,7 @@ func (p *Pong) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (p *Pong) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		p.PongBytes,
-	)
+	return WritePongPayload(w, p.PongBytes)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

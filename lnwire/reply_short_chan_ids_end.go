@@ -56,11 +56,15 @@ func (c *ReplyShortChanIDsEnd) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ReplyShortChanIDsEnd) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		c.ChainHash[:],
-		c.Complete,
-		c.ExtraData,
-	)
+	if err := WriteBytes(w, c.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteUint8(w, c.Complete); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

@@ -60,12 +60,19 @@ func (q *QueryChannelRange) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (q *QueryChannelRange) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		q.ChainHash[:],
-		q.FirstBlockHeight,
-		q.NumBlocks,
-		q.ExtraData,
-	)
+	if err := WriteBytes(w, q.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, q.FirstBlockHeight); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, q.NumBlocks); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, q.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

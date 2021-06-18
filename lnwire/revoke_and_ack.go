@@ -67,12 +67,19 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
-	return WriteElements(w,
-		c.ChanID,
-		c.Revocation[:],
-		c.NextRevocationKey,
-		c.ExtraData,
-	)
+	if err := WriteChannelID(w, c.ChanID); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, c.Revocation[:]); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, c.NextRevocationKey); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
