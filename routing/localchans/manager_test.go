@@ -18,11 +18,16 @@ import (
 // TestManager tests that the local channel manager properly propagates fee
 // updates to gossiper and links.
 func TestManager(t *testing.T) {
+	t.Parallel()
+
 	var (
-		chanPoint        = wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
-		chanCap          = btcutil.Amount(1000)
-		maxPendingAmount = lnwire.MilliSatoshi(999000)
-		minHTLC          = lnwire.MilliSatoshi(2000)
+		chanPoint         = wire.OutPoint{Hash: chainhash.Hash{1}, Index: 2}
+		chanCap           = btcutil.Amount(1000)
+		chanPointInactive = wire.OutPoint{Hash: chainhash.Hash{2}, Index: 2}
+		chanCapInactive   = btcutil.Amount(1000)
+		chanPointMissing  = wire.OutPoint{Hash: chainhash.Hash{3}, Index: 2}
+		maxPendingAmount  = lnwire.MilliSatoshi(999000)
+		minHTLC           = lnwire.MilliSatoshi(2000)
 	)
 
 	newPolicy := routing.ChannelPolicy{
@@ -91,10 +96,20 @@ func TestManager(t *testing.T) {
 	forAllOutgoingChannels := func(cb func(*channeldb.ChannelEdgeInfo,
 		*channeldb.ChannelEdgePolicy) error) error {
 
-		return cb(
+		err := cb(
 			&channeldb.ChannelEdgeInfo{
 				Capacity:     chanCap,
 				ChannelPoint: chanPoint,
+			},
+			&currentPolicy,
+		)
+		if err != nil {
+			return err
+		}
+		return cb(
+			&channeldb.ChannelEdgeInfo{
+				Capacity:     chanCapInactive,
+				ChannelPoint: chanPointInactive,
 			},
 			&currentPolicy,
 		)
@@ -115,34 +130,71 @@ func TestManager(t *testing.T) {
 		}, nil
 	}
 
+	hasActiveLink := func(chanID lnwire.ChannelID) bool {
+		activeChannelID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+		return chanID == activeChannelID
+	}
+
 	manager := Manager{
 		UpdateForwardingPolicies:  updateForwardingPolicies,
 		PropagateChanPolicyUpdate: propagateChanPolicyUpdate,
 		ForAllOutgoingChannels:    forAllOutgoingChannels,
 		FetchChannel:              fetchChannel,
+		HasActiveLink:             hasActiveLink,
 	}
 
-	// Test updating a specific channels.
-	err := manager.UpdatePolicy(newPolicy, chanPoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Test updating all channels, which comes down to the same as testing a
-	// specific channel because there is only one channel.
-	err = manager.UpdatePolicy(newPolicy)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// If no max htlc is specified, the max htlc value should be kept
-	// unchanged.
-	currentPolicy.MaxHTLC = newPolicy.MaxHTLC
+	// Policy with no max htlc value.
+	MaxHTLCPolicy := currentPolicy
+	MaxHTLCPolicy.MaxHTLC = newPolicy.MaxHTLC
 	noMaxHtlcPolicy := newPolicy
 	noMaxHtlcPolicy.MaxHTLC = 0
 
-	err = manager.UpdatePolicy(noMaxHtlcPolicy)
-	if err != nil {
-		t.Fatal(err)
+	var updatePolicyTestCases = []struct {
+		currentPolicy channeldb.ChannelEdgePolicy
+		newPolicy     routing.ChannelPolicy
+		valid         bool
+		chanPoints    []wire.OutPoint
+		errMsg        string
+	}{
+		// Test updating a valid channel.
+		{currentPolicy, newPolicy, true,
+			[]wire.OutPoint{chanPoint},
+			""},
+
+		// Test updating an active and an inactive channels.
+		{currentPolicy, newPolicy, false,
+			[]wire.OutPoint{chanPoint, chanPointInactive},
+			"an inactive channel should give an error message."},
+
+		// Test updating a missing channel.
+		{currentPolicy, newPolicy, false,
+			[]wire.OutPoint{chanPointMissing},
+			"a missing channel should give an error message."},
+
+		// Test updating all channels. Since one of the channels are
+		// inactive this should fail.
+		{currentPolicy, newPolicy, false,
+			[]wire.OutPoint{},
+			"an inactive channel should give an error message."},
+
+		// Here, no max htlc is specified, the max htlc value should be kept
+		// unchanged.
+		{MaxHTLCPolicy, noMaxHtlcPolicy, true,
+			[]wire.OutPoint{chanPoint},
+			""},
+	}
+
+	// Perform table driven tests.
+	for _, upt := range updatePolicyTestCases {
+		// Update the current polices.
+		currentPolicy = upt.currentPolicy
+
+		err := manager.UpdatePolicy(upt.newPolicy, upt.chanPoints...)
+		if !upt.valid && err == nil {
+			t.Fatalf(upt.errMsg)
+		}
+		if upt.valid && err != nil {
+			t.Fatalf(err.Error())
+		}
 	}
 }

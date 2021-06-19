@@ -842,6 +842,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
 		FetchChannel:              s.remoteChanDB.FetchChannel,
+		HasActiveLink:             s.htlcSwitch.HasActiveLink,
 	}
 
 	utxnStore, err := newNurseryStore(s.cfg.ActiveNetParams.GenesisHash, remoteChanDB)
