@@ -11,6 +11,13 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
+const (
+	// SubServerName is the name of the sub rpc server. We'll use this name
+	// to register ourselves, and we also require that the main
+	// SubServerConfigDispatcher instance recognize as the name of our
+	SubServerName = "WalletKitRPC"
+)
+
 // Config is the primary configuration struct for the WalletKit RPC server. It
 // contains all the items required for the signer rpc server to carry out its
 // duties. The fields with struct tags are meant to be parsed as normal

@@ -589,3 +589,38 @@ channels in one batch transaction, it is **imperative to use the
 `--no_publish`** flag for each channel but the very last. This prevents the
 full batch transaction to be published before each and every single channel has
 fully completed its funding negotiation.
+
+### Use the BatchOpenChannel RPC for safe batch channel funding
+
+If `lnd`'s internal wallet should fund the batch channel open transaction then
+the safest option is the `BatchOpenChannel` RPC (and its
+`lncli batchopenchannel` counterpart).
+The `BatchOpenChannel` RPC accepts a list of node pubkeys and amounts and will
+try to atomically open channels in a single transaction to all of the nodes. If
+any of the individual channel negotiations fails (for example because of a
+minimum channel size not being met) then the whole batch is aborted and
+lingering reservations/intents/pending channels are cleaned up.
+
+**Example using the CLI**:
+
+```shell
+⛰  lncli batchopenchannel --sat_per_vbyte=5 '[{
+    "node_pubkey": "02c95fd94d2a40e483e8a14be1625ad8a82263b37b6a32162170d8d4c13080bedb",
+    "local_funding_amount": 500000,
+    "private": true,
+    "close_address": "2NCJnjD4CZ5JvmkEo1D3QfDM57GX62LUbep"
+  }, {
+    "node_pubkey": "032d57116b92b5f64f022271ebd5e9e23826c0f34ff5ae3e742ad329e0dc5ddff8",
+    "local_funding_amount": 600000,
+    "remote_csv_delay": 288
+  }, {
+    "node_pubkey": "03475f7b07f79672b9a1fd2a3a2350bc444980fe06eb3ae38b132c6f43f958947b",
+    "local_funding_amount": 700000
+  }, {
+    "node_pubkey": "027f013b5cf6b7035744fd8d7d756e05675bf6e829bb75a80be5b9e8e641d20562",
+    "local_funding_amount": 800000
+  }]'
+```
+
+**NOTE**: You must be connected to each of the nodes you want to open channels
+to before you run the command.

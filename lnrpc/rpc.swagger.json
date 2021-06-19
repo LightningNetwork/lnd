@@ -416,6 +416,39 @@
         ]
       }
     },
+    "/v1/channels/batch": {
+      "post": {
+        "summary": "lncli: `batchopenchannel`\nBatchOpenChannel attempts to open multiple single-funded channels in a\nsingle transaction in an atomic way. This means either all channel open\nrequests succeed at once or all attempts are aborted if any of them fail.\nThis is the safer variant of using PSBTs to manually fund a batch of\nchannels through the OpenChannel RPC.",
+        "operationId": "BatchOpenChannel",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcBatchOpenChannelResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcBatchOpenChannelRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/channels/closed": {
       "get": {
         "summary": "lncli: `closedchannels`\nClosedChannels returns a description of all the closed channels that\nthis node was a participant in.",
@@ -2733,6 +2766,92 @@
         "macaroon": {
           "type": "string",
           "description": "The hex encoded macaroon, serialized in binary format."
+        }
+      }
+    },
+    "lnrpcBatchOpenChannel": {
+      "type": "object",
+      "properties": {
+        "node_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pubkey of the node to open a channel with. When using REST, this\nfield must be encoded as base64."
+        },
+        "local_funding_amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "The number of satoshis the wallet should commit to the channel."
+        },
+        "push_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The number of satoshis to push to the remote side as part of the initial\ncommitment state."
+        },
+        "private": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether this channel should be private, not announced to the greater\nnetwork."
+        },
+        "min_htlc_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The minimum value in millisatoshi we will require for incoming HTLCs on\nthe channel."
+        },
+        "remote_csv_delay": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The delay we require on the remote's commitment transaction. If this is\nnot set, it will be scaled automatically with the channel size."
+        },
+        "close_address": {
+          "type": "string",
+          "description": "Close address is an optional address which specifies the address to which\nfunds should be paid out to upon cooperative close. This field may only be\nset if the peer supports the option upfront feature bit (call listpeers\nto check). The remote peer will only accept cooperative closes to this\naddress if it is set.\n\nNote: If this value is set on channel creation, you will *not* be able to\ncooperatively close out to a different address."
+        }
+      }
+    },
+    "lnrpcBatchOpenChannelRequest": {
+      "type": "object",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcBatchOpenChannel"
+          },
+          "description": "The list of channels to open."
+        },
+        "target_conf": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The target number of blocks that the funding transaction should be\nconfirmed by."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "int64",
+          "description": "A manual fee rate set in sat/vByte that should be used when crafting the\nfunding transaction."
+        },
+        "min_confs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The minimum number of confirmations each one of your outputs used for\nthe funding transaction must satisfy."
+        },
+        "spend_unconfirmed": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Whether unconfirmed outputs should be used as inputs for the funding\ntransaction."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional label for the batch transaction, limited to 500 characters."
+        }
+      }
+    },
+    "lnrpcBatchOpenChannelResponse": {
+      "type": "object",
+      "properties": {
+        "pending_channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcPendingUpdate"
+          }
         }
       }
     },
