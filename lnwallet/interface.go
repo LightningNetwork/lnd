@@ -139,6 +139,10 @@ type TransactionSubscription interface {
 	// Cancel finalizes the subscription, cleaning up any resources
 	// allocated.
 	Cancel()
+
+	// Done returns a channel that is closed when the
+	// TransactionSubscription client has exited.
+	Done() <-chan struct{}
 }
 
 // WalletController defines an abstract interface for controlling a local Pure

@@ -1202,6 +1202,13 @@ func (t *txSubscriptionClient) Cancel() {
 	t.txClient.Done()
 }
 
+// Done returns a channel that is closed when the subscription is closed.
+//
+// This is part of the TransactionSubscription interface.
+func (t *txSubscriptionClient) Done() <-chan struct{} {
+	return t.quit
+}
+
 // notificationProxier proxies the notifications received by the underlying
 // wallet's notification client to a higher-level TransactionSubscription
 // client.
