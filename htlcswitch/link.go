@@ -1092,14 +1092,19 @@ func (l *channelLink) htlcManager() {
 
 			// We'll check to see if we should update the fee rate
 			// based on our current set fee rate. We'll cap the new
-			// fee rate to our max fee allocation.
+			// fee rate to our max fee allocation and will floor
+			// it at the current min relay fee.
 			commitFee := l.channel.CommitFeeRate()
 			maxFee := l.channel.MaxFeeRate(
 				l.cfg.MaxFeeAllocation,
 				l.cfg.MaxAnchorsCommitFeeRate,
 			)
+			relayFee := l.cfg.FeeEstimator.RelayFeePerKW()
+			minCommitFee := chainfee.SatPerKWeight(
+				math.Max(float64(netFee), float64(relayFee)),
+			)
 			newCommitFee := chainfee.SatPerKWeight(
-				math.Min(float64(netFee), float64(maxFee)),
+				math.Min(float64(minCommitFee), float64(maxFee)),
 			)
 			if !shouldAdjustCommitFee(newCommitFee, commitFee) {
 				continue
