@@ -283,7 +283,7 @@ func runSTM(s *stm, apply func(STM) error) error {
 	// Make a copy of the read/write set keys here. The reason why we need
 	// to do this is because subsequent applies may change (shrink) these
 	// sets and so when we decrease reference counts in the commit queue in
-	// Done(...) we'd potentially miss removing references which would
+	// done(...) we'd potentially miss removing references which would
 	// result in queueing up transactions and contending DB access.
 	// Copying these strings is cheap due to Go's immutable string which is
 	// always a reference.
@@ -309,9 +309,8 @@ func runSTM(s *stm, apply func(STM) error) error {
 	select {
 	case <-done:
 	case <-s.options.ctx.Done():
+		return context.Canceled
 	}
-
-	s.txQueue.Done(rkeys, wkeys)
 
 	if s.options.commitStatsCallback != nil {
 		stats.Retries = retries
