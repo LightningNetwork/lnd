@@ -7563,6 +7563,121 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
+// testMaxOpenChannels checks that error is returned from remote peer if
+// max open channel number was exceeded and that '--maxopenchannels' flag
+// exists and works properly.
+func testMaxOpenChannels(net *lntest.NetworkHarness, t *harnessTest) {
+	ctxb := context.Background()
+
+	maxOpenChannels := lncfg.DefaultMaxOpenChannels + 1
+	amount := funding.MaxBtcFundingAmount
+
+	// Create a new node (Carol) with greater number of max open
+	// channels.
+	args := []string{
+		fmt.Sprintf("--maxopenchannels=%v", maxOpenChannels),
+	}
+	carol, err := net.NewNode("Carol", args)
+	if err != nil {
+		t.Fatalf("unable to create new nodes: %v", err)
+	}
+	defer shutdownAndAssert(net, t, carol)
+
+	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+	if err := net.ConnectNodes(ctxt, net.Alice, carol); err != nil {
+		t.Fatalf("unable to connect carol to alice: %v", err)
+	}
+
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	carolBalance := btcutil.Amount(maxOpenChannels) * amount
+	if err := net.SendCoins(ctxt, carolBalance, carol); err != nil {
+		t.Fatalf("unable to send coins to carol: %v", err)
+	}
+
+	// Send open channel requests without generating new blocks thereby
+	// increasing pool of pending channels. Then we mine blocks to confirm
+	// the channels.
+	openStreams := make([]lnrpc.Lightning_OpenChannelClient, maxOpenChannels)
+	for i := 0; i < maxOpenChannels; i++ {
+		ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+		stream := openChannelStream(
+			ctxt, t, net, net.Alice, carol,
+			lntest.OpenChannelParams{
+				Amt: amount,
+			},
+		)
+		openStreams[i] = stream
+	}
+
+	// Mine 6 blocks, then wait for node's to notify us that the channel has
+	// been opened. The funding transactions should be found within the
+	// first newly mined block. 6 blocks make sure the funding transaction
+	// has enough confirmations to be announced publicly.
+	block := mineBlocks(t, net, 6, maxOpenChannels)[0]
+
+	chanPoints := make([]*lnrpc.ChannelPoint, maxOpenChannels)
+	for i, stream := range openStreams {
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		fundingChanPoint, err := net.WaitForChannelOpen(ctxt, stream)
+		if err != nil {
+			t.Fatalf("error while waiting for channel open: %v", err)
+		}
+
+		fundingTxID, err := lnd.GetChanPointFundingTxid(fundingChanPoint)
+		if err != nil {
+			t.Fatalf("unable to get txid: %v", err)
+		}
+
+		// Ensure that the funding transaction enters a block, and is
+		// properly advertised by Alice.
+		assertTxInBlock(t, block, fundingTxID)
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		err = net.Alice.WaitForNetworkChannelOpen(ctxt, fundingChanPoint)
+		if err != nil {
+			t.Fatalf("channel not seen on network before "+
+				"timeout: %v", err)
+		}
+
+		// The channel should be listed in the peer information
+		// returned by both peers.
+		chanPoint := wire.OutPoint{
+			Hash:  *fundingTxID,
+			Index: fundingChanPoint.OutputIndex,
+		}
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		if err := net.AssertChannelExists(ctxt, net.Alice, &chanPoint); err != nil {
+			t.Fatalf("unable to assert channel existence: %v", err)
+		}
+
+		chanPoints[i] = fundingChanPoint
+	}
+
+	// There's already a channel open, so requesting a new channel for
+	// Carol should fail with ErrorGeneric to be sent back to Alice.
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	_, err = net.OpenChannel(
+		ctxt, net.Alice, carol,
+		lntest.OpenChannelParams{
+			Amt: amount,
+		},
+	)
+
+	if err == nil {
+		t.Fatalf("error wasn't received")
+	} else if !strings.Contains(
+		err.Error(), lnwire.ErrMaxOpenChannels.Error(),
+	) {
+		t.Fatalf("not expected error was received: %v", err)
+	}
+
+	// Next, close the channel between Alice and Carol, asserting that the
+	// channel has been properly closed on-chain.
+	for _, chanPoint := range chanPoints {
+		ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+		closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
+	}
+}
+
 // getNTxsFromMempool polls until finding the desired number of transactions in
 // the provided miner's mempool and returns the full transactions to the caller.
 func getNTxsFromMempool(miner *rpcclient.Client, n int,

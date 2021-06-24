@@ -23,6 +23,10 @@ const (
 	// FundingOpen request for a channel that is above their current
 	// soft-limit.
 	ErrChanTooLarge FundingError = 3
+
+	// ErrMaxOpenChannels is returned by remote peer when the number of
+	// active open channels exceeds their maximum policy limit.
+	ErrMaxOpenChannels FundingError = 4
 )
 
 // String returns a human readable version of the target FundingError.
@@ -34,6 +38,8 @@ func (e FundingError) String() string {
 		return "Synchronizing blockchain"
 	case ErrChanTooLarge:
 		return "channel too large"
+	case ErrMaxOpenChannels:
+		return "Number of open channels exceed maximum"
 	default:
 		return "unknown error"
 	}

@@ -1803,6 +1803,12 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	globalFeatureSet := r.server.featureMgr.Get(feature.SetNodeAnn)
 
+	openChannels, err := r.server.remoteChanDB.FetchAllChannels()
+	if err != nil {
+		return nil, err
+	}
+	totalChannels := len(openChannels)
+
 	// Ensure that the initial balance of the remote party (if pushing
 	// satoshis) does not exceed the amount the local party has requested
 	// for funding.
@@ -1811,6 +1817,16 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	if remoteInitialBalance >= localFundingAmt {
 		return nil, fmt.Errorf("amount pushed to remote peer for " +
 			"initial state must be below the local funding amount")
+	}
+
+	// If there's a maxopenchannels value set and we're apply the limits
+	// to the api, then we compare the number of currently open channels
+	// against the max.
+	if r.cfg.MaxOpenChannels > 0 && r.cfg.ApplyLimitsToAPI {
+		if totalChannels >= r.cfg.MaxOpenChannels {
+			return nil, fmt.Errorf("%v open channels is at the maximum, "+
+				"can't open a new channel", totalChannels)
+		}
 	}
 
 	// Ensure that the user doesn't exceed the current soft-limit for

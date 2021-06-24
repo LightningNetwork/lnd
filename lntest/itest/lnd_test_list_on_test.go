@@ -84,6 +84,10 @@ var allTestCases = []*testCase{
 		test: testMaxPendingChannels,
 	},
 	{
+		name: "max open channel",
+		test: testMaxOpenChannels,
+	},
+	{
 		name: "multi-hop payments",
 		test: testMultiHopPayments,
 	},
