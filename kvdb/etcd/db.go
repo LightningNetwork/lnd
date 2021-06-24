@@ -122,6 +122,7 @@ func (c *commitStatsCollector) callback(succ bool, stats CommitStats) {
 type db struct {
 	cfg                  Config
 	ctx                  context.Context
+	cancel               func()
 	cli                  *clientv3.Client
 	commitStatsCollector *commitStatsCollector
 	txQueue              *commitQueue
@@ -134,7 +135,6 @@ var _ walletdb.DB = (*db)(nil)
 // config. If etcd connection cannot be estabished, then returns error.
 func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	clientCfg := clientv3.Config{
-		Context:            ctx,
 		Endpoints:          []string{cfg.Host},
 		DialTimeout:        etcdConnectionTimeout,
 		Username:           cfg.User,
@@ -157,8 +157,11 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 		clientCfg.TLS = tlsConfig
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	clientCfg.Context = ctx
 	cli, err := clientv3.New(clientCfg)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -170,6 +173,7 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	backend := &db{
 		cfg:     cfg,
 		ctx:     ctx,
+		cancel:  cancel,
 		cli:     cli,
 		txQueue: NewCommitQueue(ctx),
 	}
@@ -273,5 +277,8 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
-	return db.cli.Close()
+	err := db.cli.Close()
+	db.cancel()
+	db.txQueue.Wait()
+	return err
 }
