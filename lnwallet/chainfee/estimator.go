@@ -751,3 +751,64 @@ func (w *WebAPIEstimator) feeUpdateManager() {
 // A compile-time assertion to ensure that WebAPIEstimator implements the
 // Estimator interface.
 var _ Estimator = (*WebAPIEstimator)(nil)
+
+// minRelayFeeManager is used to store and update the minimum relay fee that is
+// required by a transaction to be accepted to the mempool.
+// The minRelayFeeManager ensures that the backend used to fetch the fee is not
+// queried too regularly.
+type minRelayFeeManager struct {
+	mu                sync.Mutex
+	minFeePerKW       SatPerKWeight
+	lastUpdatedTime   time.Time
+	minUpdateInterval time.Duration
+	fetchNewFee       func() (SatPerKWeight, error)
+}
+
+// initMinRelayFee is used to set the minFeePerKW of the minRelayFeeManager
+// and it requires that the call the the backend succeeds. This is just
+// required when the minRelayFeeManager is being initialized.
+func (m *minRelayFeeManager) initMinRelayFee() error {
+	newMinFee, err := m.fetchNewFee()
+	if err != nil {
+		return err
+	}
+
+	m.minFeePerKW = newMinFee
+	m.lastUpdatedTime = time.Now()
+	return nil
+}
+
+// getFee returns the stored minFeePerKW if it has been updated recently or
+// if the call the the chain backend fails. Otherwise, it sets the stored
+// minFeePerKW to the fee returned from the backend and floors it based on
+// our fee floor.
+func (m *minRelayFeeManager) getFee() SatPerKWeight {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if time.Since(m.lastUpdatedTime) < m.minUpdateInterval {
+		return m.minFeePerKW
+	}
+
+	newMinFee, err := m.fetchNewFee()
+	if err != nil {
+		log.Errorf("unable to fetch updated relay fee chain " +
+			"backend. Using last known relay fee instead")
+
+		return m.minFeePerKW
+	}
+
+	// By default, we'll use the backend node's minimum relay fee as the
+	// minimum fee rate we'll propose for transactions. However, if this
+	// happens to be lower than our fee floor, we'll enforce that instead.
+	m.minFeePerKW = newMinFee
+	if m.minFeePerKW < FeePerKwFloor {
+		m.minFeePerKW = FeePerKwFloor
+	}
+	m.lastUpdatedTime = time.Now()
+
+	log.Debugf("Using minimum fee rate of %v sat/kw",
+		int64(m.minFeePerKW))
+
+	return m.minFeePerKW
+}
