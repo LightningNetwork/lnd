@@ -77,6 +77,15 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 
 // restartMc creates a new instances of mission control on the same database.
 func (ctx *mcTestContext) restartMc() {
+	// Since we don't run a timer to store results in unit tests, we store
+	// them here before fetching back everyhting in NewMissionControl.
+	if ctx.mc != nil {
+		err := ctx.mc.store.storeResults()
+		if err != nil {
+			ctx.t.Fatal(err)
+		}
+	}
+
 	mc, err := NewMissionControl(
 		ctx.db, mcTestSelf,
 		&MissionControlConfig{
