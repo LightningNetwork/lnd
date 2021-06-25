@@ -10,8 +10,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
-
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const testMaxRecords = 2
@@ -97,10 +97,14 @@ func TestMissionControlStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	require.NoError(t, store.storeResults())
+
 	results, err = store.fetchAll()
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.Equal(t, 2, len(results))
+
 	if len(results) != 2 {
 		t.Fatal("expected two results")
 	}
@@ -133,11 +137,14 @@ func TestMissionControlStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	require.NoError(t, store.storeResults())
+
 	// Check that results are pruned.
 	results, err = store.fetchAll()
 	if err != nil {
 		t.Fatal(err)
 	}
+	require.Equal(t, 2, len(results))
 	if len(results) != 2 {
 		t.Fatal("expected two results")
 	}
