@@ -63,7 +63,6 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 	)
 	n.rescanErr = n.chainView.Start()
 
-	n.chainUpdates.Start()
 	n.txUpdates.Start()
 
 	if generateBlocks != nil {
@@ -80,8 +79,8 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 	loop:
 		for {
 			select {
-			case ntfn := <-n.chainUpdates.ChanOut():
-				lastReceivedNtfn := ntfn.(*filteredBlock)
+			case ntfn := <-n.chainUpdates:
+				lastReceivedNtfn := ntfn
 				if lastReceivedNtfn.height >= uint32(syncHeight) {
 					break loop
 				}
