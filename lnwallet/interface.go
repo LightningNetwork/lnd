@@ -278,8 +278,11 @@ type WalletController interface {
 	// unconfirmed transactions. The account parameter serves as a filter to
 	// retrieve the transactions relevant to a specific account. When
 	// empty, transactions of all wallet accounts are returned.
-	ListTransactionDetails(startHeight, endHeight int32,
-		accountFilter string) ([]*TransactionDetail, error)
+	// The cancel channel provided is able to cancel this operation. If this
+	// channel unblocks, the results created thus far will be returned.
+	ListTransactionDetails(cancel <-chan struct{}, startHeight,
+		endHeight int32, accountFilter string) ([]*TransactionDetail,
+		error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer
 	// be deemed as eligible for coin selection. Locking outputs are

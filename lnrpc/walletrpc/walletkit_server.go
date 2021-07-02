@@ -880,7 +880,7 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	// the wallet is still tracking. Sweeps are currently always swept to
 	// the default wallet account.
 	transactions, err := w.cfg.Wallet.ListTransactionDetails(
-		0, btcwallet.UnconfirmedHeight, lnwallet.DefaultAccountName,
+		nil, 0, btcwallet.UnconfirmedHeight, lnwallet.DefaultAccountName,
 	)
 	if err != nil {
 		return nil, err

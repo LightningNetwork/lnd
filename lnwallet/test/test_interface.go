@@ -209,7 +209,8 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	// We'll fetch all of our transaction and go through each one until
 	// finding the expected transaction with its expected confirmation
 	// status.
-	txs, err := w.ListTransactionDetails(0, btcwallet.UnconfirmedHeight, "")
+	txs, err := w.ListTransactionDetails(nil, 0, btcwallet.UnconfirmedHeight,
+		"")
 	if err != nil {
 		t.Fatalf("unable to retrieve transactions: %v", err)
 	}
@@ -1192,7 +1193,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
 	}
 	txDetails, err := alice.ListTransactionDetails(
-		startHeight, chainTip, "",
+		nil, startHeight, chainTip, "",
 	)
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
@@ -1306,7 +1307,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// with a confirmation height of 0, indicating that it has not been
 	// mined yet.
 	txDetails, err = alice.ListTransactionDetails(
-		chainTip, btcwallet.UnconfirmedHeight, "",
+		nil, chainTip, btcwallet.UnconfirmedHeight, "",
 	)
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
@@ -1362,7 +1363,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("Couldn't sync Alice's wallet: %v", err)
 	}
-	txDetails, err = alice.ListTransactionDetails(chainTip, chainTip, "")
+	txDetails, err = alice.ListTransactionDetails(nil, chainTip, chainTip, "")
 	if err != nil {
 		t.Fatalf("unable to fetch tx details: %v", err)
 	}
@@ -1409,7 +1410,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Query for transactions only in the latest block. We do not expect
 	// any transactions to be returned.
-	txDetails, err = alice.ListTransactionDetails(chainTip, chainTip, "")
+	txDetails, err = alice.ListTransactionDetails(nil, chainTip, chainTip, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
