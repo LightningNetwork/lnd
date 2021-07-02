@@ -4,6 +4,11 @@
     "title": "invoicesrpc/invoices.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "Invoices"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,7 +19,7 @@
     "/v2/invoices/cancel": {
       "post": {
         "summary": "CancelInvoice cancels a currently open invoice. If the invoice is already\ncanceled, this call will succeed. If the invoice is already settled, it will\nfail.",
-        "operationId": "CancelInvoice",
+        "operationId": "Invoices_CancelInvoice",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,9 +28,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -47,7 +52,7 @@
     "/v2/invoices/hodl": {
       "post": {
         "summary": "AddHoldInvoice creates a hold invoice. It ties the invoice to the hash\nsupplied in the request.",
-        "operationId": "AddHoldInvoice",
+        "operationId": "Invoices_AddHoldInvoice",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -56,9 +61,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -80,7 +85,7 @@
     "/v2/invoices/settle": {
       "post": {
         "summary": "SettleInvoice settles an accepted invoice. If the invoice is already\nsettled, this call will succeed.",
-        "operationId": "SettleInvoice",
+        "operationId": "Invoices_SettleInvoice",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -89,9 +94,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -113,7 +118,7 @@
     "/v2/invoices/subscribe/{r_hash}": {
       "get": {
         "summary": "SubscribeSingleInvoice returns a uni-directional stream (server -\u003e client)\nto notify the client of state transitions of the specified invoice.\nInitially the current invoice state is always sent out.",
-        "operationId": "SubscribeSingleInvoice",
+        "operationId": "Invoices_SubscribeSingleInvoice",
         "responses": {
           "200": {
             "description": "A successful response.(streaming responses)",
@@ -124,16 +129,16 @@
                   "$ref": "#/definitions/lnrpcInvoice"
                 },
                 "error": {
-                  "$ref": "#/definitions/runtimeStreamError"
+                  "$ref": "#/definitions/rpcStatus"
                 }
               },
               "title": "Stream result of lnrpcInvoice"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -216,7 +221,6 @@
         },
         "private": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether this invoice should include routing hints for private channels."
         }
       }
@@ -294,12 +298,10 @@
           "type": "string"
         },
         "is_required": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         },
         "is_known": {
-          "type": "boolean",
-          "format": "boolean"
+          "type": "boolean"
         }
       }
     },
@@ -363,7 +365,6 @@
         },
         "settled": {
           "type": "boolean",
-          "format": "boolean",
           "title": "Whether this invoice has been fulfilled"
         },
         "creation_date": {
@@ -408,7 +409,6 @@
         },
         "private": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether this invoice should include routing hints for private channels."
         },
         "add_index": {
@@ -456,7 +456,6 @@
         },
         "is_keysend": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL]."
         },
         "payment_addr": {
@@ -466,7 +465,6 @@
         },
         "is_amp": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Signals whether or not this is an AMP invoice."
         }
       }
@@ -566,42 +564,14 @@
         }
       }
     },
-    "runtimeError": {
+    "rpcStatus": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
         },
         "message": {
-          "type": "string"
-        },
-        "details": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/protobufAny"
-          }
-        }
-      }
-    },
-    "runtimeStreamError": {
-      "type": "object",
-      "properties": {
-        "grpc_code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "http_code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "message": {
-          "type": "string"
-        },
-        "http_status": {
           "type": "string"
         },
         "details": {

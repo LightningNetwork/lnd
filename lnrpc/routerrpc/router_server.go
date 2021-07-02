@@ -12,7 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -143,6 +143,9 @@ type ServerShell struct {
 // Server is a stand alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	UnimplementedRouterServer
+
 	started                  int32 // To be used atomically.
 	shutdown                 int32 // To be used atomically.
 	forwardInterceptorActive int32 // To be used atomically.

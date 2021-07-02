@@ -3,7 +3,7 @@ package verrpc
 import (
 	"context"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
@@ -28,7 +28,10 @@ type ServerShell struct {
 
 // Server is an rpc server that supports querying for information about the
 // running binary.
-type Server struct{}
+type Server struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	UnimplementedVersionerServer
+}
 
 // Start launches any helper goroutines required for the rpcServer to function.
 //

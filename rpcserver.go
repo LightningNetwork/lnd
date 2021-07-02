@@ -28,7 +28,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
-	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
+	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -520,6 +520,9 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 type rpcServer struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
+
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	lnrpc.UnimplementedLightningServer
 
 	server *server
 

@@ -90,6 +90,9 @@ var (
 // intercepting API calls. This is useful for logging, enforcing permissions
 // etc.
 type InterceptorChain struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	lnrpc.UnimplementedStateServer
+
 	started sync.Once
 	stopped sync.Once
 

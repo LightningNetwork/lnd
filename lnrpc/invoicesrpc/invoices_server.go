@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -77,6 +77,9 @@ type ServerShell struct {
 // RPC server allows external callers to access the status of the invoices
 // currently active within lnd, as well as configuring it at runtime.
 type Server struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	UnimplementedInvoicesServer
+
 	quit chan struct{}
 
 	cfg *Config
