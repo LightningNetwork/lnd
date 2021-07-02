@@ -1322,6 +1322,19 @@ func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail)
 		return ErrTxNotifierExiting
 	}
 
+	spendHeight := uint32(details.SpendingHeight)
+
+	// We also add to spendsByHeight to notify on chain reorgs.
+	reorgSafeHeight := spendHeight + n.reorgSafetyLimit
+	if reorgSafeHeight > n.currentHeight {
+		txSet, exists := n.spendsByHeight[spendHeight]
+		if !exists {
+			txSet = make(map[SpendRequest]struct{})
+			n.spendsByHeight[spendHeight] = txSet
+		}
+		txSet[ntfn.SpendRequest] = struct{}{}
+	}
+
 	return nil
 }
 
