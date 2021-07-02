@@ -1,0 +1,16 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: invoicesrpc.Invoices.SubscribeSingleInvoice
+      get: "/v2/invoices/subscribe/{r_hash}"
+    - selector: invoicesrpc.Invoices.CancelInvoice
+      post: "/v2/invoices/cancel"
+      body: "*"
+    - selector: invoicesrpc.Invoices.AddHoldInvoice
+      post: "/v2/invoices/hodl"
+      body: "*"
+    - selector: invoicesrpc.Invoices.SettleInvoice
+      post: "/v2/invoices/settle"
+      body: "*"

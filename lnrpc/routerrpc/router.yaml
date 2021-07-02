@@ -1,0 +1,48 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: routerrpc.Router.SendPaymentV2
+      post: "/v2/router/send"
+      body: "*"
+    - selector: routerrpc.Router.TrackPaymentV2
+      get: "/v2/router/track/{payment_hash}"
+    - selector: routerrpc.Router.EstimateRouteFee
+      post: "/v2/router/route/estimatefee"
+      body: "*"
+    - selector: routerrpc.Router.SendToRoute
+      # deprecated, no REST endpoint
+    - selector: routerrpc.Router.SendToRouteV2
+      post: "/v2/router/route/send"
+      body: "*"
+    - selector: routerrpc.Router.ResetMissionControl
+      post: "/v2/router/mc/reset"
+      body: "*"
+    - selector: routerrpc.Router.QueryMissionControl
+      get: "/v2/router/mc"
+    - selector: routerrpc.Router.GetMissionControlConfig
+      get: "/v2/router/mccfg"
+    - selector: routerrpc.Router.SetMissionControlConfig
+      post: "/v2/router/mccfg"
+      body: "*"
+    - selector: routerrpc.Router.QueryProbability
+      get: "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}"
+    - selector: routerrpc.Router.XImportMissionControl
+      post: "/v2/router/x/importhistory"
+      body: "*"
+    - selector: routerrpc.Router.BuildRoute
+      post: "/v2/router/route"
+      body: "*"
+    - selector: routerrpc.Router.SubscribeHtlcEvents
+      get: "/v2/router/htlcevents"
+    - selector: routerrpc.Router.SendPayment
+      # deprecated, no REST endpoint
+    - selector: routerrpc.Router.TrackPayment
+      # deprecated, no REST endpoint
+    - selector: routerrpc.Router.HtlcInterceptor
+      post: "/v2/router/htlcinterceptor"
+      body: "*"
+    - selector: routerrpc.Router.UpdateChanStatus
+      post: "/v2/router/updatechanstatus"
+      body: "*"

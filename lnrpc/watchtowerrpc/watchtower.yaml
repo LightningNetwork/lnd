@@ -1,0 +1,7 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: watchtowerrpc.Watchtower.GetInfo
+      get: "/v2/watchtower/server"

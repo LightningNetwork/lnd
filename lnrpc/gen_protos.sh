@@ -20,14 +20,15 @@ function generate() {
       "${file}"
   
     # Generate the REST reverse proxy.
+    annotationsFile=${file//proto/yaml}
     protoc -I/usr/local/include -I. \
-      --grpc-gateway_out=logtostderr=true,paths=source_relative,grpc_api_configuration=rest-annotations.yaml:. \
+      --grpc-gateway_out=logtostderr=true,paths=source_relative,grpc_api_configuration=${annotationsFile}:. \
       "${file}"
   
   
     # Finally, generate the swagger file which describes the REST API in detail.
     protoc -I/usr/local/include -I. \
-      --swagger_out=logtostderr=true,grpc_api_configuration=rest-annotations.yaml:. \
+      --swagger_out=logtostderr=true,grpc_api_configuration=${annotationsFile}:. \
       "${file}"
   done
 }

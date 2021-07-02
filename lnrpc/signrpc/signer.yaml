@@ -1,0 +1,20 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: signrpc.Signer.SignOutputRaw
+      post: "/v2/signer/signraw"
+      body: "*"
+    - selector: signrpc.Signer.ComputeInputScript
+      post: "/v2/signer/inputscript"
+      body: "*"
+    - selector: signrpc.Signer.SignMessage
+      post: "/v2/signer/signmessage"
+      body: "*"
+    - selector: signrpc.Signer.VerifyMessage
+      post: "/v2/signer/verifymessage"
+      body: "*"
+    - selector: signrpc.Signer.DeriveSharedKey
+      post: "/v2/signer/sharedkey"
+      body: "*"

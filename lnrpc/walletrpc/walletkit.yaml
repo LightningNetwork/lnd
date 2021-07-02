@@ -1,0 +1,56 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: walletrpc.WalletKit.ListUnspent
+      post: "/v2/wallet/utxos"
+    - selector: walletrpc.WalletKit.LeaseOutput
+      post: "/v2/wallet/utxos/lease"
+      body: "*"
+    - selector: walletrpc.WalletKit.ReleaseOutput
+      post: "/v2/wallet/utxos/release"
+      body: "*"
+    - selector: walletrpc.WalletKit.ListLeases
+      post: "/v2/wallet/utxos/leases"
+    - selector: walletrpc.WalletKit.DeriveNextKey
+      post: "/v2/wallet/key/next"
+      body: "*"
+    - selector: walletrpc.WalletKit.DeriveKey
+      post: "/v2/wallet/key"
+      body: "*"
+    - selector: walletrpc.WalletKit.ImportPublicKey
+      post: "/v2/wallet/key/import"
+      body: "*"
+    - selector: walletrpc.WalletKit.NextAddr
+      post: "/v2/wallet/address/next"
+      body: "*"
+    - selector: walletrpc.WalletKit.PublishTransaction
+      post: "/v2/wallet/tx"
+      body: "*"
+    - selector: walletrpc.WalletKit.SendOutputs
+      post: "/v2/wallet/send"
+      body: "*"
+    - selector: walletrpc.WalletKit.EstimateFee
+      get: "/v2/wallet/estimatefee/{conf_target}"
+    - selector: walletrpc.WalletKit.PendingSweeps
+      get: "/v2/wallet/sweeps/pending"
+    - selector: walletrpc.WalletKit.BumpFee
+      post: "/v2/wallet/bumpfee"
+      body: "*"
+    - selector: walletrpc.WalletKit.ListSweeps
+      get: "/v2/wallet/sweeps"
+    - selector: walletrpc.WalletKit.LabelTransaction
+      post: "/v2/wallet/tx/label"
+      body: "*"
+    - selector: walletrpc.WalletKit.FundPsbt
+      post: "/v2/wallet/psbt/fund"
+      body: "*"
+    - selector: walletrpc.WalletKit.FinalizePsbt
+      post: "/v2/wallet/psbt/finalize"
+      body: "*"
+    - selector: walletrpc.WalletKit.ListAccounts
+      get: "/v2/wallet/accounts"
+    - selector: walletrpc.WalletKit.ImportAccount
+      post: "/v2/wallet/accounts/import"
+      body: "*"
