@@ -1,7 +1,7 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "rpc.proto",
+    "title": "lightning.proto",
     "version": "version not set"
   },
   "consumes": [

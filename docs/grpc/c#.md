@@ -23,7 +23,7 @@ Create a folder `Grpc` in the root of your project and fetch the lnd proto files
 
 ```shell
 ⛰  mkdir Grpc
-⛰  curl -o Grpc/rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
+⛰  curl -o Grpc/lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
 ```
 
 Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Core` using NuGet or manually with `dotnet add`:
@@ -34,11 +34,11 @@ Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Core` using NuGet or manually wit
 ⛰  dotnet add package Grpc.Core
 ```
 
-Add the `rpc.proto` file to the `.csproj` file in an ItemGroup. (In Visual Studio you can do this by unloading the project, editing the `.csproj` file and then reloading it)
+Add the `lightning.proto` file to the `.csproj` file in an ItemGroup. (In Visual Studio you can do this by unloading the project, editing the `.csproj` file and then reloading it)
 
 ```xml
 <ItemGroup>
-   <Protobuf Include="Grpc\rpc.proto" GrpcServices="Client" />
+   <Protobuf Include="Grpc\lightning.proto" GrpcServices="Client" />
 </ItemGroup>
 ```
 

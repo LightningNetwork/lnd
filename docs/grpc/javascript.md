@@ -13,16 +13,16 @@ dependencies:
 npm install grpc @grpc/proto-loader --save
 ```
 
-You also need to copy the `lnd` `rpc.proto` file in your project directory (or
-at least somewhere reachable by your Javascript code).
+You also need to copy the `lnd` `lightning.proto` file in your project directory
+(or at least somewhere reachable by your Javascript code).
 
-The `rpc.proto` file is [located in the `lnrpc` directory of the `lnd`
-sources](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto).
+The `lightning.proto` file is [located in the `lnrpc` directory of the `lnd`
+sources](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/lightning.proto).
 
 ### Imports and Client
 
 Every time you work with Javascript gRPC, you will have to import `grpc`, load
-`rpc.proto`, and create a connection to your client like so:
+`lightning.proto`, and create a connection to your client like so:
 
 ```js
 const grpc = require('grpc');
@@ -43,7 +43,7 @@ const loaderOptions = {
   defaults: true,
   oneofs: true
 };
-const packageDefinition = protoLoader.loadSync('rpc.proto', loaderOptions);
+const packageDefinition = protoLoader.loadSync('lightning.proto', loaderOptions);
 
 //  Lnd cert is at ~/.lnd/tls.cert on Linux and
 //  ~/Library/Application Support/Lnd/tls.cert on Mac
@@ -192,7 +192,7 @@ const loaderOptions = {
   defaults: true,
   oneofs: true
 };
-const packageDefinition = protoLoader.loadSync('rpc.proto', loaderOptions);
+const packageDefinition = protoLoader.loadSync('lightning.proto', loaderOptions);
 
 process.env.GRPC_SSL_CIPHER_SUITES = 'HIGH+ECDSA'
 
