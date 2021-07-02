@@ -8,7 +8,7 @@ import (
 	"math"
 	"strings"
 
-	v3 "go.etcd.io/etcd/clientv3"
+	v3 "go.etcd.io/etcd/client/v3"
 )
 
 type CommitStats struct {
