@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -370,6 +371,47 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 			_, err = readOnlyClient.GetInfo(ctxt, infoReq)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "permission denied")
+		},
+	}, {
+		// Seventh test: check that if the allow_external_permissions
+		// flag is set, we are able to feed BakeMacaroons permissions
+		// that LND is not familiar with.
+		name: "allow external macaroon permissions",
+		run: func(ctxt context.Context, t *testing.T,
+			adminClient lnrpc.LightningClient) {
+
+			// We'll try permissions from Pool to test that the
+			// allow_external_permissions flag properly allows it.
+			rootKeyID := uint64(4200)
+			req := &lnrpc.BakeMacaroonRequest{
+				RootKeyId: rootKeyID,
+				Permissions: []*lnrpc.MacaroonPermission{{
+					Entity: "account",
+					Action: "read",
+				}},
+				AllowExternalPermissions: true,
+			}
+
+			resp, err := adminClient.BakeMacaroon(ctxt, req)
+			require.NoError(t, err)
+
+			// We'll also check that the external permission was
+			// successfully added to the macaroon.
+			macBytes, err := hex.DecodeString(resp.Macaroon)
+			require.NoError(t, err)
+
+			mac := &macaroon.Macaroon{}
+			err = mac.UnmarshalBinary(macBytes)
+			require.NoError(t, err)
+
+			rawID := mac.Id()
+			decodedID := &lnrpc.MacaroonId{}
+			idProto := rawID[1:]
+			err = proto.Unmarshal(idProto, decodedID)
+			require.NoError(t, err)
+
+			require.Equal(t, "account", decodedID.Ops[0].Entity)
+			require.Equal(t, "read", decodedID.Ops[0].Actions[0])
 		},
 	}}
 
