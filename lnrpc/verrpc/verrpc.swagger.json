@@ -4,6 +4,11 @@
     "title": "verrpc/verrpc.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "Versioner"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,7 +19,7 @@
     "/v2/versioner/version": {
       "get": {
         "summary": "lncli: `version`\nGetVersion returns the current version and build information of the running\ndaemon.",
-        "operationId": "GetVersion",
+        "operationId": "Versioner_GetVersion",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,9 +28,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -48,12 +53,9 @@
         }
       }
     },
-    "runtimeError": {
+    "rpcStatus": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"

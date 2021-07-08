@@ -1,0 +1,14 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: chainrpc.ChainNotifier.RegisterConfirmationsNtfn
+      post: "/v2/chainnotifier/register/confirmations"
+      body: "*"
+    - selector: chainrpc.ChainNotifier.RegisterSpendNtfn
+      post: "/v2/chainnotifier/register/spends"
+      body: "*"
+    - selector: chainrpc.ChainNotifier.RegisterBlockEpochNtfn
+      post: "/v2/chainnotifier/register/blocks"
+      body: "*"

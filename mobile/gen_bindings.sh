@@ -39,7 +39,7 @@ listeners="lightning=lightningLis walletunlocker=lightningLis state=lightningLis
 # one proto file is being parsed, it should only be done once.
 mem_rpc=1
 
-PROTOS="rpc.proto walletunlocker.proto stateservice.proto"
+PROTOS="lightning.proto walletunlocker.proto stateservice.proto"
 
 opts="package_name=$pkg,target_package=$target_pkg,listeners=$listeners,mem_rpc=$mem_rpc"
 

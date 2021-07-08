@@ -4,6 +4,11 @@
     "title": "autopilotrpc/autopilot.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "Autopilot"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,7 +19,7 @@
     "/v2/autopilot/modify": {
       "post": {
         "summary": "ModifyStatus is used to modify the status of the autopilot agent, like\nenabling or disabling it.",
-        "operationId": "ModifyStatus",
+        "operationId": "Autopilot_ModifyStatus",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,9 +28,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -47,7 +52,7 @@
     "/v2/autopilot/scores": {
       "get": {
         "summary": "QueryScores queries all available autopilot heuristics, in addition to any\nactive combination of these heruristics, for the scores they would give to\nthe given nodes.",
-        "operationId": "QueryScores",
+        "operationId": "Autopilot_QueryScores",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -56,9 +61,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -78,8 +83,7 @@
             "description": "If set, we will ignore the local channel state when calculating scores.",
             "in": "query",
             "required": false,
-            "type": "boolean",
-            "format": "boolean"
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -88,7 +92,7 @@
       },
       "post": {
         "summary": "SetScores attempts to set the scores used by the running autopilot agent,\nif the external scoring heuristic is enabled.",
-        "operationId": "SetScores",
+        "operationId": "Autopilot_SetScores",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -97,9 +101,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -121,7 +125,7 @@
     "/v2/autopilot/status": {
       "get": {
         "summary": "Status returns whether the daemon's autopilot agent is active.",
-        "operationId": "Status",
+        "operationId": "Autopilot_Status",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -130,9 +134,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -163,7 +167,6 @@
       "properties": {
         "enable": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether the autopilot agent should be enabled or not."
         }
       }
@@ -207,7 +210,6 @@
       "properties": {
         "active": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Indicates whether the autopilot is active or not."
         }
       }
@@ -224,12 +226,9 @@
         }
       }
     },
-    "runtimeError": {
+    "rpcStatus": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"

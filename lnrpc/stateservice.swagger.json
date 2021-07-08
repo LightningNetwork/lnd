@@ -4,6 +4,11 @@
     "title": "stateservice.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "State"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,7 +19,7 @@
     "/v1/state": {
       "get": {
         "summary": "GetState returns the current wallet state without streaming further\nchanges.",
-        "operationId": "GetState",
+        "operationId": "State_GetState",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,9 +28,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -37,7 +42,7 @@
     "/v1/state/subscribe": {
       "get": {
         "summary": "SubscribeState subscribes to the state of the wallet. The current wallet\nstate will always be delivered immediately.",
-        "operationId": "SubscribeState",
+        "operationId": "State_SubscribeState",
         "responses": {
           "200": {
             "description": "A successful response.(streaming responses)",
@@ -48,16 +53,16 @@
                   "$ref": "#/definitions/lnrpcSubscribeStateResponse"
                 },
                 "error": {
-                  "$ref": "#/definitions/runtimeStreamError"
+                  "$ref": "#/definitions/rpcStatus"
                 }
               },
               "title": "Stream result of lnrpcSubscribeStateResponse"
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -107,42 +112,14 @@
         }
       }
     },
-    "runtimeError": {
+    "rpcStatus": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
         },
         "message": {
-          "type": "string"
-        },
-        "details": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/protobufAny"
-          }
-        }
-      }
-    },
-    "runtimeStreamError": {
-      "type": "object",
-      "properties": {
-        "grpc_code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "http_code": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "message": {
-          "type": "string"
-        },
-        "http_status": {
           "type": "string"
         },
         "details": {

@@ -4,6 +4,11 @@
     "title": "watchtowerrpc/watchtower.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "Watchtower"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,7 +19,7 @@
     "/v2/watchtower/server": {
       "get": {
         "summary": "lncli: tower info\nGetInfo returns general information concerning the companion watchtower\nincluding its public key and URIs where the server is currently\nlistening for clients.",
-        "operationId": "GetInfo",
+        "operationId": "Watchtower_GetInfo",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,9 +28,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -48,12 +53,9 @@
         }
       }
     },
-    "runtimeError": {
+    "rpcStatus": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"

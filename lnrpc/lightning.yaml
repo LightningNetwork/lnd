@@ -1,0 +1,147 @@
+type: google.api.Service
+config_version: 3
+
+# Mapping for the grpc-gateway REST proxy.
+# Please make sure to also update the `metadata.go` file when editing this file
+# and adding a new client-streaming RPC!
+
+http:
+  rules:
+    - selector: lnrpc.Lightning.WalletBalance
+      get: "/v1/balance/blockchain"
+    - selector: lnrpc.Lightning.ChannelBalance
+      get: "/v1/balance/channels"
+    - selector: lnrpc.Lightning.GetTransactions
+      get: "/v1/transactions"
+    - selector: lnrpc.Lightning.EstimateFee
+      get: "/v1/transactions/fee"
+    - selector: lnrpc.Lightning.SendCoins
+      post: "/v1/transactions"
+      body: "*"
+    - selector: lnrpc.Lightning.ListUnspent
+      get: "/v1/utxos"
+    - selector: lnrpc.Lightning.SubscribeTransactions
+      get: "/v1/transactions/subscribe"
+    - selector: lnrpc.Lightning.SendMany
+      post: "/v1/transactions/many"
+      body: "*"
+    - selector: lnrpc.Lightning.NewAddress
+      get: "/v1/newaddress"
+    - selector: lnrpc.Lightning.SignMessage
+      post: "/v1/signmessage"
+      body: "*"
+    - selector: lnrpc.Lightning.VerifyMessage
+      post: "/v1/verifymessage"
+      body: "*"
+    - selector: lnrpc.Lightning.ConnectPeer
+      post: "/v1/peers"
+      body: "*"
+    - selector: lnrpc.Lightning.DisconnectPeer
+      delete: "/v1/peers/{pub_key}"
+    - selector: lnrpc.Lightning.ListPeers
+      get: "/v1/peers"
+    - selector: lnrpc.Lightning.SubscribePeerEvents
+      get: "/v1/peers/subscribe"
+    - selector: lnrpc.Lightning.GetInfo
+      get: "/v1/getinfo"
+    - selector: lnrpc.Lightning.GetRecoveryInfo
+      get: "/v1/getrecoveryinfo"
+    - selector: lnrpc.Lightning.PendingChannels
+      get: "/v1/channels/pending"
+    - selector: lnrpc.Lightning.ListChannels
+      get: "/v1/channels"
+    - selector: lnrpc.Lightning.SubscribeChannelEvents
+      get: "/v1/channels/subscribe"
+    - selector: lnrpc.Lightning.ClosedChannels
+      get: "/v1/channels/closed"
+    - selector: lnrpc.Lightning.OpenChannelSync
+      post: "/v1/channels"
+      body: "*"
+    - selector: lnrpc.Lightning.OpenChannel
+      post: "/v1/channels/stream"
+      body: "*"
+    - selector: lnrpc.Lightning.FundingStateStep
+      post: "/v1/funding/step"
+      body: "*"
+    - selector: lnrpc.Lightning.ChannelAcceptor
+      post: "/v1/channels/acceptor"
+      body: "*"
+    - selector: lnrpc.Lightning.CloseChannel
+      delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
+    - selector: lnrpc.Lightning.AbandonChannel
+      delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
+    - selector: lnrpc.Lightning.SendPayment
+      post: "/v1/channels/transaction-stream"
+      body: "*"
+    - selector: lnrpc.Lightning.SendPaymentSync
+      post: "/v1/channels/transactions"
+      body: "*"
+    - selector: lnrpc.Lightning.SendToRoute
+      # deprecated, no REST endpoint
+    - selector: lnrpc.Lightning.SendToRouteSync
+      post: "/v1/channels/transactions/route"
+      body: "*"
+    - selector: lnrpc.Lightning.AddInvoice
+      post: "/v1/invoices"
+      body: "*"
+    - selector: lnrpc.Lightning.ListInvoices
+      get: "/v1/invoices"
+    - selector: lnrpc.Lightning.LookupInvoice
+      get: "/v1/invoice/{r_hash_str}"
+    - selector: lnrpc.Lightning.SubscribeInvoices
+      get: "/v1/invoices/subscribe"
+    - selector: lnrpc.Lightning.DecodePayReq
+      get: "/v1/payreq/{pay_req}"
+    - selector: lnrpc.Lightning.ListPayments
+      get: "/v1/payments"
+    - selector: lnrpc.Lightning.DeleteAllPayments
+      delete: "/v1/payments"
+    - selector: lnrpc.Lightning.DescribeGraph
+      get: "/v1/graph"
+    - selector: lnrpc.Lightning.GetNodeMetrics
+      get: "/v1/graph/nodemetrics"
+    - selector: lnrpc.Lightning.GetChanInfo
+      get: "/v1/graph/edge/{chan_id}"
+    - selector: lnrpc.Lightning.GetNodeInfo
+      get: "/v1/graph/node/{pub_key}"
+    - selector: lnrpc.Lightning.QueryRoutes
+      get: "/v1/graph/routes/{pub_key}/{amt}"
+    - selector: lnrpc.Lightning.GetNetworkInfo
+      get: "/v1/graph/info"
+    - selector: lnrpc.Lightning.StopDaemon
+      post: "/v1/stop"
+      body: "*"
+    - selector: lnrpc.Lightning.SubscribeChannelGraph
+      get: "/v1/graph/subscribe"
+    - selector: lnrpc.Lightning.DebugLevel
+      post: "/v1/debuglevel"
+      body: "*"
+    - selector: lnrpc.Lightning.FeeReport
+      get: "/v1/fees"
+    - selector: lnrpc.Lightning.UpdateChannelPolicy
+      post: "/v1/chanpolicy"
+      body: "*"
+    - selector: lnrpc.Lightning.ForwardingHistory
+      post: "/v1/switch"
+      body: "*"
+    - selector: lnrpc.Lightning.ExportChannelBackup
+      get: "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}"
+    - selector: lnrpc.Lightning.ExportAllChannelBackups
+      get: "/v1/channels/backup"
+    - selector: lnrpc.Lightning.VerifyChanBackup
+      post: "/v1/channels/backup/verify"
+      body: "*"
+    - selector: lnrpc.Lightning.RestoreChannelBackups
+      post: "/v1/channels/backup/restore"
+      body: "*"
+    - selector: lnrpc.Lightning.SubscribeChannelBackups
+      get: "/v1/channels/backup/subscribe"
+    - selector: lnrpc.Lightning.BakeMacaroon
+      post: "/v1/macaroon"
+      body: "*"
+    - selector: lnrpc.Lightning.ListMacaroonIDs
+      get: "/v1/macaroon/ids"
+    - selector: lnrpc.Lightning.DeleteMacaroonID
+      delete: "/v1/macaroon/{root_key_id}"
+    - selector: lnrpc.Lightning.ListPermissions
+      get: "/v1/macaroon/permissions"

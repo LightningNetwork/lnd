@@ -24,7 +24,7 @@ with lnd in Java. We'll be using Maven as our build tool.
           │       ├── annotations.proto
           │       └── http.proto
           └── lnrpc
-              └── rpc.proto
+              └── lightning.proto
 
 ```
 Note the ***proto*** folder, where all the proto files are kept.
@@ -233,7 +233,7 @@ Execute the following command in the directory where the **pom.xml** file is loc
 
 ### Java proto options
 
-There are 2 options available that can be used in the *rpc.proto* file :
+There are 2 options available that can be used in the *lightning.proto* file :
 
 * option java_multiple_files = true;
 * option java_package = "network.lightning.rpc";

@@ -1,0 +1,9 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: lnrpc.State.SubscribeState
+      get: "/v1/state/subscribe"
+    - selector: lnrpc.State.GetState
+      get: "/v1/state"

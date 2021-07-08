@@ -1,0 +1,16 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: lnrpc.WalletUnlocker.GenSeed
+      get: "/v1/genseed"
+    - selector: lnrpc.WalletUnlocker.InitWallet
+      post: "/v1/initwallet"
+      body: "*"
+    - selector: lnrpc.WalletUnlocker.UnlockWallet
+      post: "/v1/unlockwallet"
+      body: "*"
+    - selector: lnrpc.WalletUnlocker.ChangePassword
+      post: "/v1/changepassword"
+      body: "*"

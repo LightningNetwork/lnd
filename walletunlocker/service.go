@@ -109,6 +109,9 @@ type WalletUnlockMsg struct {
 // initial setup, users can provide their own source of entropy which will be
 // used to generate the seed that's ultimately used within the wallet.
 type UnlockerService struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	lnrpc.UnimplementedWalletUnlockerServer
+
 	// InitMsgs is a channel that carries all wallet init messages.
 	InitMsgs chan *WalletInitMsg
 

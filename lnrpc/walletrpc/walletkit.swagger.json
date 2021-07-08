@@ -4,6 +4,11 @@
     "title": "walletrpc/walletkit.proto",
     "version": "version not set"
   },
+  "tags": [
+    {
+      "name": "WalletKit"
+    }
+  ],
   "consumes": [
     "application/json"
   ],
@@ -14,7 +19,7 @@
     "/v2/wallet/accounts": {
       "get": {
         "summary": "ListAccounts retrieves all accounts belonging to the wallet by default. A\nname and key scope filter can be provided to filter through all of the\nwallet accounts and return only those matching.",
-        "operationId": "ListAccounts",
+        "operationId": "WalletKit_ListAccounts",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -23,9 +28,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -61,7 +66,7 @@
       "post": {
         "summary": "ImportAccount imports an account backed by an account extended public key.\nThe master key fingerprint denotes the fingerprint of the root key\ncorresponding to the account public key (also known as the key with\nderivation path m/). This may be required by some hardware wallets for\nproper identification and signing.",
         "description": "The address type can usually be inferred from the key's version, but may be\nrequired for certain keys to map them into the proper scope.\n\nFor BIP-0044 keys, an address type must be specified as we intend to not\nsupport importing BIP-0044 keys into the wallet using the legacy\npay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force\nthe standard BIP-0049 derivation scheme, while a witness address type will\nforce the standard BIP-0084 derivation scheme.\n\nFor BIP-0049 keys, an address type must also be specified to make a\ndistinction between the standard BIP-0049 address schema (nested witness\npubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys\nexternally, witness pubkeys internally).\n\nNOTE: Events (deposits/spends) for keys derived from an account will only be\ndetected by lnd if they happen after the import. Rescans to detect past\nevents will be supported later on.",
-        "operationId": "ImportAccount",
+        "operationId": "WalletKit_ImportAccount",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -70,9 +75,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -94,7 +99,7 @@
     "/v2/wallet/address/next": {
       "post": {
         "summary": "NextAddr returns the next unused address within the wallet.",
-        "operationId": "NextAddr",
+        "operationId": "WalletKit_NextAddr",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -103,9 +108,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -128,7 +133,7 @@
       "post": {
         "summary": "BumpFee bumps the fee of an arbitrary input within a transaction. This RPC\ntakes a different approach than bitcoind's bumpfee command. lnd has a\ncentral batching engine in which inputs with similar fee rates are batched\ntogether to save on transaction fees. Due to this, we cannot rely on\nbumping the fee on a specific transaction, since transactions can change at\nany point with the addition of new inputs. The list of inputs that\ncurrently exist within lnd's central batching engine can be retrieved\nthrough the PendingSweeps RPC.",
         "description": "When bumping the fee of an input that currently exists within lnd's central\nbatching engine, a higher fee transaction will be created that replaces the\nlower fee transaction through the Replace-By-Fee (RBF) policy. If it\n\nThis RPC also serves useful when wanting to perform a Child-Pays-For-Parent\n(CPFP), where the child transaction pays for its parent's fee. This can be\ndone by specifying an outpoint within the low fee transaction that is under\nthe control of the wallet.\n\nThe fee preference can be expressed either as a specific fee rate or a delta\nof blocks in which the output should be swept on-chain within. If a fee\npreference is not explicitly specified, then an error is returned.\n\nNote that this RPC currently doesn't perform any validation checks on the\nfee preference being provided. For now, the responsibility of ensuring that\nthe new fee preference is sufficient is delegated to the user.",
-        "operationId": "BumpFee",
+        "operationId": "WalletKit_BumpFee",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -137,9 +142,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -161,7 +166,7 @@
     "/v2/wallet/estimatefee/{conf_target}": {
       "get": {
         "summary": "EstimateFee attempts to query the internal fee estimator of the wallet to\ndetermine the fee (in sat/kw) to attach to a transaction in order to\nachieve the confirmation target.",
-        "operationId": "EstimateFee",
+        "operationId": "WalletKit_EstimateFee",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -170,9 +175,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -194,7 +199,7 @@
     "/v2/wallet/key": {
       "post": {
         "summary": "DeriveKey attempts to derive an arbitrary key specified by the passed\nKeyLocator.",
-        "operationId": "DeriveKey",
+        "operationId": "WalletKit_DeriveKey",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -203,9 +208,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -228,7 +233,7 @@
       "post": {
         "summary": "ImportPublicKey imports a public key as watch-only into the wallet.",
         "description": "NOTE: Events (deposits/spends) for a key will only be detected by lnd if\nthey happen after the import. Rescans to detect past events will be\nsupported later on.",
-        "operationId": "ImportPublicKey",
+        "operationId": "WalletKit_ImportPublicKey",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -237,9 +242,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -261,7 +266,7 @@
     "/v2/wallet/key/next": {
       "post": {
         "summary": "DeriveNextKey attempts to derive the *next* key within the key family\n(account in BIP43) specified. This method should return the next external\nchild within this branch.",
-        "operationId": "DeriveNextKey",
+        "operationId": "WalletKit_DeriveNextKey",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -270,9 +275,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -295,7 +300,7 @@
       "post": {
         "summary": "FinalizePsbt expects a partial transaction with all inputs and outputs fully\ndeclared and tries to sign all inputs that belong to the wallet. Lnd must be\nthe last signer of the transaction. That means, if there are any unsigned\nnon-witness inputs or inputs without UTXO information attached or inputs\nwithout witness data that do not belong to lnd's wallet, this method will\nfail. If no error is returned, the PSBT is ready to be extracted and the\nfinal TX within to be broadcast.",
         "description": "NOTE: This method does NOT publish the transaction once finalized. It is the\ncaller's responsibility to either publish the transaction on success or\nunlock/release any locked UTXOs in case of an error in this method.",
-        "operationId": "FinalizePsbt",
+        "operationId": "WalletKit_FinalizePsbt",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -304,9 +309,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -329,7 +334,7 @@
       "post": {
         "summary": "FundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are two ways of specifying a\ntemplate: Either by passing in a PSBT with at least one output declared or\nby passing in a raw TxTemplate message.",
         "description": "If there are no inputs specified in the template, coin selection is\nperformed automatically. If the template does contain any inputs, it is\nassumed that full coin selection happened externally and no additional\ninputs are added. If the specified inputs aren't enough to fund the outputs\nwith the given fee rate, an error is returned.\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
-        "operationId": "FundPsbt",
+        "operationId": "WalletKit_FundPsbt",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -338,9 +343,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -362,7 +367,7 @@
     "/v2/wallet/send": {
       "post": {
         "summary": "SendOutputs is similar to the existing sendmany call in Bitcoind, and\nallows the caller to create a transaction that sends to several outputs at\nonce. This is ideal when wanting to batch create a set of transactions.",
-        "operationId": "SendOutputs",
+        "operationId": "WalletKit_SendOutputs",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -371,9 +376,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -395,7 +400,7 @@
     "/v2/wallet/sweeps": {
       "get": {
         "summary": "ListSweeps returns a list of the sweep transactions our node has produced.\nNote that these sweeps may not be confirmed yet, as we record sweeps on\nbroadcast, not confirmation.",
-        "operationId": "ListSweeps",
+        "operationId": "WalletKit_ListSweeps",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -404,9 +409,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -416,8 +421,7 @@
             "description": "Retrieve the full sweep transaction details. If false, only the sweep txids\nwill be returned. Note that some sweeps that LND publishes will have been\nreplaced-by-fee, so will not be included in this output.",
             "in": "query",
             "required": false,
-            "type": "boolean",
-            "format": "boolean"
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -429,7 +433,7 @@
       "get": {
         "summary": "PendingSweeps returns lists of on-chain outputs that lnd is currently\nattempting to sweep within its central batching engine. Outputs with similar\nfee rates are batched together in order to sweep them within a single\ntransaction.",
         "description": "NOTE: Some of the fields within PendingSweepsRequest are not guaranteed to\nremain supported. This is an advanced API that depends on the internals of\nthe UtxoSweeper, so things may change.",
-        "operationId": "PendingSweeps",
+        "operationId": "WalletKit_PendingSweeps",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -438,9 +442,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -452,7 +456,7 @@
     "/v2/wallet/tx": {
       "post": {
         "summary": "PublishTransaction attempts to publish the passed transaction to the\nnetwork. Once this returns without an error, the wallet will continually\nattempt to re-broadcast the transaction on start up, until it enters the\nchain.",
-        "operationId": "PublishTransaction",
+        "operationId": "WalletKit_PublishTransaction",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -461,9 +465,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -485,7 +489,7 @@
     "/v2/wallet/tx/label": {
       "post": {
         "summary": "LabelTransaction adds a label to a transaction. If the transaction already\nhas a label the call will fail unless the overwrite bool is set. This will\noverwrite the exiting transaction label. Labels must not be empty, and\ncannot exceed 500 characters.",
-        "operationId": "LabelTransaction",
+        "operationId": "WalletKit_LabelTransaction",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -494,9 +498,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -518,7 +522,7 @@
     "/v2/wallet/utxos": {
       "post": {
         "summary": "ListUnspent returns a list of all utxos spendable by the wallet with a\nnumber of confirmations between the specified minimum and maximum.",
-        "operationId": "ListUnspent",
+        "operationId": "WalletKit_ListUnspent",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -527,9 +531,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -541,7 +545,7 @@
     "/v2/wallet/utxos/lease": {
       "post": {
         "summary": "LeaseOutput locks an output to the given ID, preventing it from being\navailable for any future coin selection attempts. The absolute time of the\nlock's expiration is returned. The expiration of the lock can be extended by\nsuccessive invocations of this RPC. Outputs can be unlocked before their\nexpiration through `ReleaseOutput`.",
-        "operationId": "LeaseOutput",
+        "operationId": "WalletKit_LeaseOutput",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -550,9 +554,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -574,7 +578,7 @@
     "/v2/wallet/utxos/leases": {
       "post": {
         "summary": "ListLeases lists all currently locked utxos.",
-        "operationId": "ListLeases",
+        "operationId": "WalletKit_ListLeases",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -583,9 +587,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -597,7 +601,7 @@
     "/v2/wallet/utxos/release": {
       "post": {
         "summary": "ReleaseOutput unlocks an output, allowing it to be available for coin\nselection if it remains unspent. The ID should match the one used to\noriginally lock the output.",
-        "operationId": "ReleaseOutput",
+        "operationId": "WalletKit_ReleaseOutput",
         "responses": {
           "200": {
             "description": "A successful response.",
@@ -606,9 +610,9 @@
             }
           },
           "default": {
-            "description": "An unexpected error response",
+            "description": "An unexpected error response.",
             "schema": {
-              "$ref": "#/definitions/runtimeError"
+              "$ref": "#/definitions/rpcStatus"
             }
           }
         },
@@ -780,12 +784,9 @@
         }
       }
     },
-    "runtimeError": {
+    "rpcStatus": {
       "type": "object",
       "properties": {
-        "error": {
-          "type": "string"
-        },
         "code": {
           "type": "integer",
           "format": "int32"
@@ -881,7 +882,6 @@
         },
         "watch_only": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether the wallet stores private keys for the account."
         }
       }
@@ -933,7 +933,6 @@
         },
         "force": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether this input must be force-swept. This means that it is swept even\nif it has a negative yield."
         },
         "sat_per_vbyte": {
@@ -1018,7 +1017,6 @@
         },
         "spend_unconfirmed": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
         }
       }
@@ -1067,7 +1065,6 @@
         },
         "dry_run": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether a dry run should be attempted when importing the account. This\nserves as a way to confirm whether the account is being imported correctly\nby returning the first N addresses for the external and internal branches of\nthe account. If these addresses match as expected, then it should be safe to\nimport the account as is."
         }
       }
@@ -1141,7 +1138,6 @@
         },
         "overwrite": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether to overwrite the existing label, if it is present."
         }
       }
@@ -1277,7 +1273,6 @@
         },
         "force": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether this input must be force-swept. This means that it is swept even\nif it has a negative yield."
         }
       }
@@ -1346,7 +1341,6 @@
         },
         "spend_unconfirmed": {
           "type": "boolean",
-          "format": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
         }
       }

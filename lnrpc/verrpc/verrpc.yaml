@@ -1,0 +1,7 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: verrpc.Versioner.GetVersion
+      get: "/v2/versioner/version"

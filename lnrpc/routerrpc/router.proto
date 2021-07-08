@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-import "rpc.proto";
+import "lightning.proto";
 
 package routerrpc;
 

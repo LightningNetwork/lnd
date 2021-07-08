@@ -1,0 +1,15 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: autopilotrpc.Autopilot.Status
+      get: "/v2/autopilot/status"
+    - selector: autopilotrpc.Autopilot.ModifyStatus
+      post: "/v2/autopilot/modify"
+      body: "*"
+    - selector: autopilotrpc.Autopilot.QueryScores
+      get: "/v2/autopilot/scores"
+    - selector: autopilotrpc.Autopilot.SetScores
+      post: "/v2/autopilot/scores"
+      body: "*"

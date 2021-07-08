@@ -25,28 +25,28 @@ Clone the Google APIs repository:
 ⛰  git clone https://github.com/googleapis/googleapis.git
 ```
 
-Fetch the `rpc.proto` file (or copy it from your local source directory):
+Fetch the `lightning.proto` file (or copy it from your local source directory):
 
 ```shell
-⛰  curl -o rpc.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/rpc.proto
+⛰  curl -o lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
 ```
 
 Compile the proto file:
 
 ```shell
-⛰  grpc_tools_ruby_protoc --proto_path googleapis:. --ruby_out=. --grpc_out=. rpc.proto
+⛰  grpc_tools_ruby_protoc --proto_path googleapis:. --ruby_out=. --grpc_out=. lightning.proto
 ```
 
 Two files will be generated in the current directory: 
 
-* `rpc_pb.rb`
-* `rpc_services_pb.rb`
+* `lightning_pb.rb`
+* `lightning_services_pb.rb`
 
 ### Examples
 
 #### Simple client to display wallet balance
 
-Every time you use the Ruby gRPC you need to require the `rpc_services_pb` file.
+Every time you use the Ruby gRPC you need to require the `lightning_services_pb` file.
 
 We assume that `lnd` runs on the default `localhost:10009`.
 
@@ -58,7 +58,7 @@ We further assume you run `lnd` with `--no-macaroons`.
 $:.unshift(File.dirname(__FILE__))
 
 require 'grpc'
-require 'rpc_services_pb'
+require 'lightning_services_pb'
 
 # Due to updated ECDSA generated tls.cert we need to let gprc know that
 # we need to use that cipher suite otherwise there will be a handhsake
@@ -83,7 +83,7 @@ This will show the `total_balance` of the wallet.
 $:.unshift(File.dirname(__FILE__))
 
 require 'grpc'
-require 'rpc_services_pb'
+require 'lightning_services_pb'
 
 ENV['GRPC_SSL_CIPHER_SUITES'] = "HIGH+ECDSA"
 

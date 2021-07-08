@@ -1,0 +1,18 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: wtclientrpc.WatchtowerClient.AddTower
+      post: "/v2/watchtower/client"
+      body: "*"
+    - selector: wtclientrpc.WatchtowerClient.RemoveTower
+      delete: "/v2/watchtower/client/{pubkey}"
+    - selector: wtclientrpc.WatchtowerClient.ListTowers
+      get: "/v2/watchtower/client"
+    - selector: wtclientrpc.WatchtowerClient.GetTowerInfo
+      get: "/v2/watchtower/client/info/{pubkey}"
+    - selector: wtclientrpc.WatchtowerClient.Stats
+      get: "/v2/watchtower/client/stats"
+    - selector: wtclientrpc.WatchtowerClient.Policy
+      get: "/v2/watchtower/client/policy"

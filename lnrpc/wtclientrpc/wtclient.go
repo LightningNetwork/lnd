@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -76,6 +76,9 @@ type ServerShell struct {
 //
 // TODO(wilmer): better name?
 type WatchtowerClient struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	UnimplementedWatchtowerClientServer
+
 	cfg Config
 }
 
@@ -89,7 +92,7 @@ var _ WatchtowerClientServer = (*WatchtowerClient)(nil)
 // then we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
 func New(cfg *Config) (*WatchtowerClient, lnrpc.MacaroonPerms, error) {
-	return &WatchtowerClient{*cfg}, macPermissions, nil
+	return &WatchtowerClient{cfg: *cfg}, macPermissions, nil
 }
 
 // Start launches any helper goroutines required for the WatchtowerClient to

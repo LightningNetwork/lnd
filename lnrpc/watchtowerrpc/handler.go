@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -45,6 +45,9 @@ type ServerShell struct {
 // Handler is the RPC server we'll use to interact with the backing active
 // watchtower.
 type Handler struct {
+	// Required by the grpc-gateway/v2 library for forward compatibility.
+	UnimplementedWatchtowerServer
+
 	cfg Config
 }
 
@@ -58,7 +61,7 @@ var _ WatchtowerServer = (*Handler)(nil)
 // on start up. If we're unable to locate, or create the macaroons we need, then
 // we'll return with an error.
 func New(cfg *Config) (*Handler, lnrpc.MacaroonPerms, error) {
-	return &Handler{*cfg}, macPermissions, nil
+	return &Handler{cfg: *cfg}, macPermissions, nil
 }
 
 // Start launches any helper goroutines required for the Handler to function.
