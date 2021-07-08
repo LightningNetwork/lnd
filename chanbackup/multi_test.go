@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"net"
 	"testing"
+
+	"github.com/lightningnetwork/lnd/lnencrypt"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
 // TestMultiPackUnpack...
@@ -25,7 +28,9 @@ func TestMultiPackUnpack(t *testing.T) {
 		multi.StaticBackups = append(multi.StaticBackups, single)
 	}
 
-	keyRing := &mockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 
 	versionTestCases := []struct {
 		// version is the pack/unpack version that we should use to
@@ -97,7 +102,7 @@ func TestMultiPackUnpack(t *testing.T) {
 			fakeRawMulti := bytes.NewBuffer(
 				bytes.Repeat([]byte{99}, 20),
 			)
-			err := encryptPayloadToWriter(
+			err := lnencrypt.EncryptPayloadToWriter(
 				*fakeRawMulti, &fakePackedMulti, keyRing,
 			)
 			if err != nil {
@@ -122,8 +127,9 @@ func TestMultiPackUnpack(t *testing.T) {
 func TestPackedMultiUnpack(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
-
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 	// First, we'll make a new unpacked multi with a random channel.
 	testChannel, err := genRandomOpenChannelShell()
 	if err != nil {

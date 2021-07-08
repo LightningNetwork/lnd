@@ -1,6 +1,8 @@
 package mock
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcec"
 
 	"github.com/lightningnetwork/lnd/keychain"
@@ -9,6 +11,7 @@ import (
 // SecretKeyRing is a mock implementation of the SecretKeyRing interface.
 type SecretKeyRing struct {
 	RootKey *btcec.PrivateKey
+	Fail    bool
 }
 
 // DeriveNextKey currently returns dummy values.
@@ -23,6 +26,9 @@ func (s *SecretKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (
 // DeriveKey currently returns dummy values.
 func (s *SecretKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor,
 	error) {
+	if s.Fail {
+		return keychain.KeyDescriptor{}, fmt.Errorf("fail")
+	}
 	return keychain.KeyDescriptor{
 		PubKey: s.RootKey.PubKey(),
 	}, nil

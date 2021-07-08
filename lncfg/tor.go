@@ -12,5 +12,6 @@ type Tor struct {
 	V2                bool   `long:"v2" description:"Automatically set up a v2 onion service to listen for inbound connections"`
 	V3                bool   `long:"v3" description:"Automatically set up a v3 onion service to listen for inbound connections"`
 	PrivateKeyPath    string `long:"privatekeypath" description:"The path to the private key of the onion service being created"`
+	EncryptKey        bool   `long:"encryptkey" description:"Encrypts the Tor private key file on disk"`
 	WatchtowerKeyPath string `long:"watchtowerkeypath" description:"The path to the private key of the watchtower onion service being created"`
 }

@@ -84,12 +84,11 @@ const (
 	// p2p level (BOLT-0008).
 	KeyFamilyNodeKey KeyFamily = 6
 
-	// KeyFamilyStaticBackup is the family of keys that will be used to
-	// derive keys that we use to encrypt and decrypt our set of static
-	// backups. These backups may either be stored within watch towers for
-	// a payment, or self stored on disk in a single file containing all
-	// the static channel backups.
-	KeyFamilyStaticBackup KeyFamily = 7
+	// KeyFamilyBaseEncryption is the family of keys that will be used to
+	// derive keys that we use to encrypt and decrypt any general blob data
+	// like static channel backups and the TLS private key. Often used when
+	// encrypting files on disk.
+	KeyFamilyBaseEncryption KeyFamily = 7
 
 	// KeyFamilyTowerSession is the family of keys that will be used to
 	// derive session keys when negotiating sessions with watchtowers. The

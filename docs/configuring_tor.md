@@ -182,3 +182,8 @@ base directory. This will allow `lnd` to recreate the same hidden service upon
 restart. If you wish to generate a new onion service, you can simply delete this
 file. The path to this private key file can also be modified with the
 `--tor.privatekeypath` argument.
+
+You can optionally encrypt the Tor private key by using the `--tor.encryptkey` 
+flag. This will still write to the same private key files. However instead of 
+writing the plaintext private key, `lnd` encrypts the private key using the 
+wallet's seed and writes the encrypted blob to the file.

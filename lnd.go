@@ -852,6 +852,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error
 		if torController != nil {
 			wtCfg.TorController = torController
 			wtCfg.WatchtowerKeyPath = cfg.Tor.WatchtowerKeyPath
+			wtCfg.EncryptKey = cfg.Tor.EncryptKey
+			wtCfg.KeyRing = activeChainControl.KeyRing
 
 			switch {
 			case cfg.Tor.V2:

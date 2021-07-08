@@ -66,6 +66,7 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/lightningnetwork/lnd/tor/onionfile"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -2418,7 +2419,10 @@ func (s *server) createNewHiddenService() error {
 	onionCfg := tor.AddOnionConfig{
 		VirtualPort: defaultPeerPort,
 		TargetPorts: listenPorts,
-		Store:       tor.NewOnionFile(s.cfg.Tor.PrivateKeyPath, 0600),
+		Store: onionfile.NewOnionFile(
+			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,
+			s.cc.KeyRing,
+		),
 	}
 
 	switch {
@@ -2428,7 +2432,7 @@ func (s *server) createNewHiddenService() error {
 		onionCfg.Type = tor.V3
 	}
 
-	addr, err := s.torController.AddOnion(onionCfg)
+	addr, err := s.torController.AddOnion(onionCfg, s.cfg.Tor.EncryptKey)
 	if err != nil {
 		return err
 	}
