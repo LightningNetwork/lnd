@@ -14,6 +14,9 @@ import (
 	"net"
 	"os"
 	"time"
+
+	"github.com/lightningnetwork/lnd/keychain"
+ 	"github.com/lightningnetwork/lnd/lnencrypt"
 )
 
 var (
@@ -187,8 +190,10 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 	return false, nil
 }
 
-// GenCertPair generates a key/cert pair to the paths provided. The
-// auto-generated certificates should *not* be used in production for public
+// GenCertPair generates a key/cert pair to the paths provided if defined.
+// The bytes of the generated certificate and private key are returned.
+//
+// The auto-generated certificates should *not* be used in production for public
 // access as they're self-signed and don't necessarily contain all of the
 // desired hostnames for the service. For production/public use, consider a
 // real PKI.
@@ -197,7 +202,8 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 // https://github.com/btcsuite/btcutil
 func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	tlsExtraDomains []string, tlsDisableAutofill bool,
-	certValidity time.Duration) error {
+	certValidity time.Duration, encryptKey bool,
+ 	keyRing keychain.KeyRing) ([]byte, []byte, error) {
 
 	now := time.Now()
 	validUntil := now.Add(certValidity)
@@ -210,7 +216,7 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	// Generate a serial number that's below the serialNumberLimit.
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		return fmt.Errorf("failed to generate serial number: %s", err)
+		return nil, nil, fmt.Errorf("failed to generate serial number: %s", err)
 	}
 
 	// Get all DNS names and IP addresses to use when creating the
@@ -218,13 +224,13 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	host, dnsNames := dnsNames(tlsExtraDomains, tlsDisableAutofill)
 	ipAddresses, err := ipAddresses(tlsExtraIPs, tlsDisableAutofill)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Generate a private key for the certificate.
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// Construct the certificate template.
@@ -250,35 +256,46 @@ func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template,
 		&template, &priv.PublicKey, priv)
 	if err != nil {
-		return fmt.Errorf("failed to create certificate: %v", err)
+		return nil, nil, fmt.Errorf("failed to create certificate: %v", err)
 	}
 
 	certBuf := &bytes.Buffer{}
 	err = pem.Encode(certBuf, &pem.Block{Type: "CERTIFICATE",
 		Bytes: derBytes})
 	if err != nil {
-		return fmt.Errorf("failed to encode certificate: %v", err)
+		return nil, nil, fmt.Errorf("failed to encode certificate: %v", err)
 	}
 
 	keybytes, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return fmt.Errorf("unable to encode privkey: %v", err)
+		return nil, nil, fmt.Errorf("unable to encode privkey: %v", err)
 	}
 	keyBuf := &bytes.Buffer{}
 	err = pem.Encode(keyBuf, &pem.Block{Type: "EC PRIVATE KEY",
 		Bytes: keybytes})
 	if err != nil {
-		return fmt.Errorf("failed to encode private key: %v", err)
+		return nil, nil, fmt.Errorf("failed to encode private key: %v", err)
 	}
 
-	// Write cert and key files.
-	if err = ioutil.WriteFile(certFile, certBuf.Bytes(), 0644); err != nil {
-		return err
+	// Write cert and key files. Ensures the paths are defined before writing.
+	if certFile != "" {
+		if err = ioutil.WriteFile(certFile, certBuf.Bytes(), 0644); err != nil {
+			return nil, nil, err
+		}
 	}
-	if err = ioutil.WriteFile(keyFile, keyBuf.Bytes(), 0600); err != nil {
-		os.Remove(certFile)
-		return err
+	if keyFile != "" {
+		keyPayload := keyBuf.Bytes()
+		// If the user requests the TLS key to be encrypted on disk we do so
+		if encryptKey {
+			var b bytes.Buffer
+			lnencrypt.EncryptPayloadToWriter(*keyBuf, &b, keyRing)
+			keyPayload = b.Bytes()
+		}
+		if err = ioutil.WriteFile(keyFile, keyPayload, 0600); err != nil {
+			os.Remove(certFile)
+			return nil, nil, err
+		}
 	}
 
-	return nil
+	return certBuf.Bytes(), keyBuf.Bytes(), nil
 }

@@ -1,4 +1,4 @@
-package chanbackup
+package lnencrypt
 
 import (
 	"bytes"
@@ -15,20 +15,20 @@ import (
 // TODO(roasbeef): interface in front of?
 
 // baseEncryptionKeyLoc is the KeyLocator that we'll use to derive the base
-// encryption key used for encrypting all static channel backups. We use this
-// to then derive the actual key that we'll use for encryption. We do this
+// encryption key used for encrypting all payloads. We use this to then
+// derive the actual key that we'll use for encryption. We do this
 // rather than using the raw key, as we assume that we can't obtain the raw
 // keys, and we don't want to require that the HSM know our target cipher for
 // encryption.
 //
 // TODO(roasbeef): possibly unique encrypt?
 var baseEncryptionKeyLoc = keychain.KeyLocator{
-	Family: keychain.KeyFamilyStaticBackup,
+	Family: keychain.KeyFamilyBaseEncryption,
 	Index:  0,
 }
 
-// genEncryptionKey derives the key that we'll use to encrypt all of our static
-// channel backups. The key itself, is the sha2 of a base key that we get from
+// genEncryptionKey derives the key that we'll use to encrypt all of our files
+// that are written to disk. The key itself, is the sha2 of a base key that we get from
 // the keyring. We derive the key this way as we don't force the HSM (or any
 // future abstractions) to be able to derive and know of the cipher that we'll
 // use within our protocol.
@@ -50,18 +50,18 @@ func genEncryptionKey(keyRing keychain.KeyRing) ([]byte, error) {
 	return encryptionKey[:], nil
 }
 
-// encryptPayloadToWriter attempts to write the set of bytes contained within
+// EncryptPayloadToWriter attempts to write the set of bytes contained within
 // the passed byes.Buffer into the passed io.Writer in an encrypted form. We
 // use a 24-byte chachapoly AEAD instance with a randomized nonce that's
 // pre-pended to the final payload and used as associated data in the AEAD. We
 // use the passed keyRing to generate the encryption key, see genEncryptionKey
 // for further details.
-func encryptPayloadToWriter(payload bytes.Buffer, w io.Writer,
+func EncryptPayloadToWriter(payload bytes.Buffer, w io.Writer,
 	keyRing keychain.KeyRing) error {
 
 	// First, we'll derive the key that we'll use to encrypt the payload
-	// for safe storage without giving away the details of any of our
-	// channels.  The final operation is:
+	// for safe storage without giving away the details of any sensitive
+	// details.  The final operation is:
 	//
 	//  key = SHA256(baseKey)
 	encryptionKey, err := genEncryptionKey(keyRing)
@@ -96,15 +96,14 @@ func encryptPayloadToWriter(payload bytes.Buffer, w io.Writer,
 	return nil
 }
 
-// decryptPayloadFromReader attempts to decrypt the encrypted bytes within the
+// DecryptPayloadFromReader attempts to decrypt the encrypted bytes within the
 // passed io.Reader instance using the key derived from the passed keyRing. For
 // further details regarding the key derivation protocol, see the
 // genEncryptionKey method.
-func decryptPayloadFromReader(payload io.Reader,
+func DecryptPayloadFromReader(payload io.Reader,
 	keyRing keychain.KeyRing) ([]byte, error) {
 
-	// First, we'll re-generate the encryption key that we use for all the
-	// SCBs.
+	// First, we'll re-generate the encryption key.
 	encryptionKey, err := genEncryptionKey(keyRing)
 	if err != nil {
 		return nil, err
@@ -112,21 +111,20 @@ func decryptPayloadFromReader(payload io.Reader,
 
 	// Next, we'll read out the entire blob as we need to isolate the nonce
 	// from the rest of the ciphertext.
-	packedBackup, err := ioutil.ReadAll(payload)
+	packedPayload, err := ioutil.ReadAll(payload)
 	if err != nil {
 		return nil, err
 	}
-	if len(packedBackup) < chacha20poly1305.NonceSizeX {
+	if len(packedPayload) < chacha20poly1305.NonceSizeX {
 		return nil, fmt.Errorf("payload size too small, must be at "+
 			"least %v bytes", chacha20poly1305.NonceSizeX)
 	}
 
-	nonce := packedBackup[:chacha20poly1305.NonceSizeX]
-	ciphertext := packedBackup[chacha20poly1305.NonceSizeX:]
+	nonce := packedPayload[:chacha20poly1305.NonceSizeX]
+	ciphertext := packedPayload[chacha20poly1305.NonceSizeX:]
 
 	// Now that we have the cipher text and the nonce separated, we can go
-	// ahead and decrypt the final blob so we can properly serialized the
-	// SCB.
+	// ahead and decrypt the final blob so we can properly serialize.
 	cipher, err := chacha20poly1305.NewX(encryptionKey)
 	if err != nil {
 		return nil, err

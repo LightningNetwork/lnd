@@ -88,6 +88,47 @@ directory) is missing on startup, a new self-signed key/certificate pair is
 generated. Clients connecting to `lnd` then have to use the new certificate
 to verify they are talking to the correct server.
 
+#### TLS Key Encryption
+
+By default, LND writes the TLS key to disk in plaintext. If you run in an
+untrusted environment you may want to encrypt the TLS key so no one could
+snoop on your API traffic. This can be accomplished with the `--tlsencryptkey`
+flag in LND. When this is set, LND encrypts the TLS key using the wallet's
+seed and writes the encrypted blob to disk.
+
+Because the key is encrypted to the wallet's seed, that means we can only use
+the TLS pair when the wallet is unlocked. This would leave the
+`WalletUnlocker` service without TLS. To circumvent this problem, LND uses a
+temporary TLS pair for the `WalletUnlocker` service. To avoid writing the
+temporary key to disk, it is held in memory until the wallet is unlocked. The
+temporary TLS cert is written to disk using the same value as `tlscertpath`
+with `.tmp` appended to the end. Once the wallet is unlocked, the temporary
+TLS cert is deleted from disk and the TLS key is removed from memory. Then
+LND uses the main TLS cert and key after it's decrypted.
+
+This requires a slight change in behavior when connecting to LND's APIs.
+When `--tlsencryptkey` is set on LND, you will need to access the temporary
+TLS cert for the initialize, unlock, and change password API calls. You can
+do this in `lncli` by simply pointing the `--tlscertpath` flag at the temporary
+TLS cert for the `create`, `unlock`, and `changepassword` commands. If you
+aren't able to run `lncli` on the host `lnd` is running on, then you'll need
+to copy the temporary certificate from the host onto whatever device you're
+using. Ignoring TLS certificate verification is considered insecure and not
+recommended.
+
+_Important Considerations:_
+
+- Once you set `--tlsencryptkey` when starting LND, you'll always need to use
+the flag. If you don't want to encrypt the TLS key anymore you'll have to
+delete the TLS cert and key so LND generates a new one in plaintext.
+
+- The temporary TLS cert still contains the same information as the persistent
+certificates
+
+- The temporary TLS cert is only valid for 24 hours while the persistent certs
+are valid for more than a year.
+
+
 ### Macaroons
 
 Macaroons are used as the main authentication method in `lnd`. A macaroon is a

@@ -1,40 +1,26 @@
-package chanbackup
+package lnencrypt
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
 var (
-	testWalletPrivKey = []byte{
-		0x2b, 0xd8, 0x06, 0xc9, 0x7f, 0x0e, 0x00, 0xaf,
-		0x1a, 0x1f, 0xc3, 0x32, 0x8f, 0xa7, 0x63, 0xa9,
-		0x26, 0x97, 0x23, 0xc8, 0xdb, 0x8f, 0xac, 0x4f,
-		0x93, 0xaf, 0x71, 0xdb, 0x18, 0x6d, 0x6e, 0x90,
+	// Use hard-coded keys for Alice and Bob, the two FundingManagers that
+	// we will test the interaction between.
+	privKeyBytes = [32]byte{
+		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
+		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
+		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
+		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
+
+	privKey, _ = btcec.PrivKeyFromBytes(btcec.S256(),
+		privKeyBytes[:])
 )
-
-type mockKeyRing struct {
-	fail bool
-}
-
-func (m *mockKeyRing) DeriveNextKey(keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
-	return keychain.KeyDescriptor{}, nil
-}
-func (m *mockKeyRing) DeriveKey(keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
-	if m.fail {
-		return keychain.KeyDescriptor{}, fmt.Errorf("fail")
-	}
-
-	_, pub := btcec.PrivKeyFromBytes(btcec.S256(), testWalletPrivKey)
-	return keychain.KeyDescriptor{
-		PubKey: pub,
-	}, nil
-}
 
 // TestEncryptDecryptPayload tests that given a static key, we're able to
 // properly decrypt and encrypted payload. We also test that we'll reject a
@@ -81,14 +67,16 @@ func TestEncryptDecryptPayload(t *testing.T) {
 		},
 	}
 
-	keyRing := &mockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 
 	for i, payloadCase := range payloadCases {
 		var cipherBuffer bytes.Buffer
 
 		// First, we'll encrypt the passed payload with our scheme.
 		payloadReader := bytes.NewBuffer(payloadCase.plaintext)
-		err := encryptPayloadToWriter(
+		err := EncryptPayloadToWriter(
 			*payloadReader, &cipherBuffer, keyRing,
 		)
 		if err != nil {
@@ -107,7 +95,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 			cipherBuffer.Write(cipherText)
 		}
 
-		plaintext, err := decryptPayloadFromReader(&cipherBuffer, keyRing)
+		plaintext, err := DecryptPayloadFromReader(&cipherBuffer, keyRing)
 
 		switch {
 		// If this was meant to be a valid decryption, but we failed,
@@ -137,7 +125,9 @@ func TestInvalidKeyEncryption(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	err := encryptPayloadToWriter(b, &b, &mockKeyRing{true})
+	keyRing := &mock.SecretKeyRing{}
+	keyRing.Fail = true
+	err := EncryptPayloadToWriter(b, &b, keyRing)
 	if err == nil {
 		t.Fatalf("expected error due to fail key gen")
 	}
@@ -149,7 +139,9 @@ func TestInvalidKeyDecrytion(t *testing.T) {
 	t.Parallel()
 
 	var b bytes.Buffer
-	_, err := decryptPayloadFromReader(&b, &mockKeyRing{true})
+	keyRing := &mock.SecretKeyRing{}
+	keyRing.Fail = true
+	_, err := DecryptPayloadFromReader(&b, keyRing)
 	if err == nil {
 		t.Fatalf("expected error due to fail key gen")
 	}

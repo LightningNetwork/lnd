@@ -22,6 +22,12 @@ const (
 
 	// V3 denotes that the onion service is V3.
 	V3
+
+	// V2KeyParam is a parameter that Tor accepts for a new V2 service.
+	V2KeyParam = "RSA1024"
+
+	// V3KeyParam is a parameter that Tor accepts for a new V3 service.
+	V3KeyParam = "ED25519-V3"
 )
 
 // OnionStore is a store containing information about a particular onion
@@ -123,9 +129,9 @@ func (c *Controller) AddOnion(cfg AddOnionConfig) (*OnionAddr, error) {
 	var keyParam string
 	switch cfg.Type {
 	case V2:
-		keyParam = "NEW:RSA1024"
+		keyParam = "NEW:" + V2KeyParam
 	case V3:
-		keyParam = "NEW:ED25519-V3"
+		keyParam = "NEW:" + V3KeyParam
 	}
 
 	if cfg.Store != nil {

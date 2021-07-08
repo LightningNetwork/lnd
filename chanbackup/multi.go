@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -89,7 +90,7 @@ func (m Multi) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 
 	// With the plaintext multi backup assembled, we'll now encrypt it
 	// directly to the passed writer.
-	return encryptPayloadToWriter(multiBackupBuffer, w, keyRing)
+	return lnencrypt.EncryptPayloadToWriter(multiBackupBuffer, w, keyRing)
 }
 
 // UnpackFromReader attempts to unpack (decrypt+deserialize) a packed
@@ -99,7 +100,7 @@ func (m *Multi) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
 	// We'll attempt to read the entire packed backup, and also decrypt it
 	// using the passed key ring which is expected to be able to derive the
 	// encryption keys.
-	plaintextBackup, err := decryptPayloadFromReader(r, keyRing)
+	plaintextBackup, err := lnencrypt.DecryptPayloadFromReader(r, keyRing)
 	if err != nil {
 		return err
 	}

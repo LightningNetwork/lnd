@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/mock"
 )
 
 type mockSwapper struct {
@@ -79,8 +80,9 @@ func (m *mockChannelNotifier) SubscribeChans(chans map[wire.OutPoint]struct{}) (
 func TestNewSubSwapperSubscribeFail(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
-
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 	var swapper mockSwapper
 	chanNotifier := mockChannelNotifier{
 		fail: true,
@@ -151,7 +153,9 @@ func assertExpectedBackupSwap(t *testing.T, swapper *mockSwapper,
 func TestSubSwapperIdempotentStartStop(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 
 	var chanNotifier mockChannelNotifier
 
@@ -182,7 +186,9 @@ func TestSubSwapperIdempotentStartStop(t *testing.T) {
 func TestSubSwapperUpdater(t *testing.T) {
 	t.Parallel()
 
-	keyRing := &mockKeyRing{}
+	keyRing := &mock.SecretKeyRing{
+		RootKey: privKey,
+	}
 	chanNotifier := newMockChannelNotifier()
 	swapper := newMockSwapper(keyRing)
 
