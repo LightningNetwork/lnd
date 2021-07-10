@@ -113,8 +113,7 @@ jobs:
             To verify the `lnd` and `lncli` binaries inside the docker images against the signed, reproducible release binaries, there is a verification script in the image that can be called (before starting the container for example):
 
             ```shell
-            $ docker pull lightninglabs/lnd:${{ env.RELEASE_VERSION }}
-            $ docker run --rm --entrypoint="" lightninglabs/lnd:${{ env.RELEASE_VERSION }} /verify-install.sh
+            $ docker run --rm --entrypoint="" lightninglabs/lnd:${{ env.RELEASE_VERSION }} /verify-install.sh ${{ env.RELEASE_VERSION }}
             $ OK=$?
             $ if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
             $ docker run lightninglabs/lnd [command-line options]
