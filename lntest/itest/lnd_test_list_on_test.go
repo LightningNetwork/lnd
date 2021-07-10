@@ -334,4 +334,8 @@ var allTestCases = []*testCase{
 		name: "max htlc pathfind",
 		test: testMaxHtlcPathfind,
 	},
+	{
+		name: "addpeer config",
+		test: testAddPeerConfig,
+	},
 }
