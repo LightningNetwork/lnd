@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -445,8 +446,9 @@ func newNode(cfg NodeConfig) (*HarnessNode, error) {
 }
 
 // NewMiner creates a new miner using btcd backend. The logDir specifies the
-// miner node's log dir. When tests finished, during clean up, its logs are
-// copied to a file specified as logFilename.
+// miner node's log dir. When tests are finished, during clean up, its log
+// files, including any compressed log files from logrotate, are copied to
+// logDir as logFilename.
 func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 	handler *rpcclient.NotificationHandlers,
 	btcdBinary string) (*rpctest.Harness, func() error, error) {
@@ -475,13 +477,26 @@ func NewMiner(logDir, logFilename string, netParams *chaincfg.Params,
 			)
 		}
 
-		// After shutting down the miner, we'll make a copy of the log
-		// file before deleting the temporary log dir.
-		logFile := fmt.Sprintf("%s/%s/btcd.log", logDir, netParams.Name)
-		copyPath := fmt.Sprintf("%s/../%s", logDir, logFilename)
-		err := CopyFile(filepath.Clean(copyPath), logFile)
+		// After shutting down the miner, we'll make a copy of
+		// the log files before deleting the temporary log dir.
+		files, err := ioutil.ReadDir(logDir + "/" + netParams.Name)
 		if err != nil {
-			return fmt.Errorf("unable to copy file: %v", err)
+			return fmt.Errorf("unable to read log directory: %v", err)
+		}
+
+		for _, file := range files {
+			logFile := fmt.Sprintf(
+				"%s/%s/%s", logDir, netParams.Name, file.Name(),
+			)
+			newFilename := strings.Replace(file.Name(), "btcd.log", logFilename, 1)
+			copyPath := fmt.Sprintf(
+				"%s/../%s", logDir, newFilename,
+			)
+
+			err := CopyFile(filepath.Clean(copyPath), logFile)
+			if err != nil {
+				return fmt.Errorf("unable to copy file: %v", err)
+			}
 		}
 
 		if err = os.RemoveAll(logDir); err != nil {
