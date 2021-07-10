@@ -4613,6 +4613,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The index of the last item in the set of returned payments. This can be used\nas the index_offset to continue seeking forwards in the next request."
+        },
+        "total_payments": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total sum count of all payments, including incomplete payments."
         }
       }
     },

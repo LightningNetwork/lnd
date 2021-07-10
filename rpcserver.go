@@ -5738,6 +5738,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	paymentsResp := &lnrpc.ListPaymentsResponse{
 		LastIndexOffset:  paymentsQuerySlice.LastIndexOffset,
 		FirstIndexOffset: paymentsQuerySlice.FirstIndexOffset,
+		TotalPayments:    paymentsQuerySlice.TotalPayments,
 	}
 
 	for _, payment := range paymentsQuerySlice.Payments {

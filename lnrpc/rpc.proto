@@ -3345,6 +3345,11 @@ message ListPaymentsResponse {
     as the index_offset to continue seeking forwards in the next request.
     */
     uint64 last_index_offset = 3;
+
+    /*
+    The total sum count of all payments, including incomplete payments.
+    */
+    uint64 total_payments = 4;
 }
 
 message DeleteAllPaymentsRequest {

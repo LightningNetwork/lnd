@@ -505,6 +505,11 @@ type PaymentsResponse struct {
 	// in the event that the slice has too many events to fit into a single
 	// response. The offset can be used to continue forward pagination.
 	LastIndexOffset uint64
+
+	// TotalPayments is the total count of all payments stored in the db.
+	// The total count will include all payments regardless of payment
+	// status.  This includes failed or incomplete payments.
+	TotalPayments uint64
 }
 
 // QueryPayments is a query to the payments database which is restricted
@@ -526,6 +531,22 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 		indexes := tx.ReadBucket(paymentsIndexBucket)
 		if indexes == nil {
 			return fmt.Errorf("index bucket does not exist")
+		}
+
+		// Use a db cursor to get the last key from the index bucket,
+		// which will equal the total count of payments.  If it
+		// doesn't exist, assume no payments have been created and set
+		// the total payments to zero.
+		cursor := indexes.ReadCursor()
+		if cursor == nil {
+			return fmt.Errorf("cursor does not exist")
+		}
+
+		k, _ := cursor.Last()
+		if k != nil {
+			resp.TotalPayments = binary.BigEndian.Uint64(k)
+		} else {
+			resp.TotalPayments = 0
 		}
 
 		// accumulatePayments gets payments with the sequence number

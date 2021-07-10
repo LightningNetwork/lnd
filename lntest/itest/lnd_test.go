@@ -5089,6 +5089,10 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("incorrect number of payments, got %v, want %v",
 			len(paymentsRespInit.Payments), 0)
 	}
+	if paymentsRespInit.TotalPayments != 0 {
+		t.Fatalf("incorrect number of payments, got %v, want %v",
+			paymentsRespInit.TotalPayments, 0)
+	}
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
@@ -5153,6 +5157,10 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("incorrect number of payments, got %v, want %v",
 			len(paymentsResp.Payments), 1)
 	}
+	if paymentsResp.TotalPayments != 1 {
+		t.Fatalf("incorrect number of payments, got %v, want %v",
+			paymentsResp.TotalPayments, 1)
+	}
 	p := paymentsResp.Payments[0]
 	path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
 
@@ -5188,6 +5196,62 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 			p.PaymentRequest, invoiceResp.PaymentRequest)
 	}
 
+	// Generate another invoice from Bob, for an amount that will cause
+	// the next payment attempt from Alice to fail.
+	const paymentAmtForFailure = 200000
+	preimage = bytes.Repeat([]byte("F"), 32)
+	invoice = &lnrpc.Invoice{
+		Memo:      "testing",
+		RPreimage: preimage,
+		Value:     paymentAmtForFailure,
+	}
+	addInvoiceCtxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	invoiceResp, err = net.Bob.AddInvoice(addInvoiceCtxt, invoice)
+	if err != nil {
+		t.Fatalf("unable to add invoice: %v", err)
+	}
+
+	// Attempt to pay Bobs invoice, and verify that it has failed because
+	// Alice has insufficient funds for the payment/invoice.
+	sendAndAssertFailure(
+		t, net.Alice,
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: invoiceResp.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitSat:    1000000,
+		},
+		lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE,
+	)
+
+	// Count Alices total payments, set incomplete flag to false but
+	// total count should still include incomplete payments
+	req = &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: false,
+	}
+	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	paymentsResp, err = net.Alice.ListPayments(ctxt, req)
+	if err != nil {
+		t.Fatalf("error when obtaining Alice payments: %v", err)
+	}
+	if paymentsResp.TotalPayments != 2 {
+		t.Fatalf("incorrect number of payments, got %v, want %v",
+			paymentsResp.TotalPayments, 2)
+	}
+
+	// Count Alice total payments, including failed payments.
+	req = &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
+	paymentsResp, err = net.Alice.ListPayments(ctxt, req)
+	if err != nil {
+		t.Fatalf("error when obtaining Alice payments: %v", err)
+	}
+	if paymentsResp.TotalPayments != 2 {
+		t.Fatalf("incorrect number of payments, got %v, want %v",
+			paymentsResp.TotalPayments, 2)
+	}
+
 	// Delete all payments from Alice. DB should have no payments.
 	delReq := &lnrpc.DeleteAllPaymentsRequest{}
 	ctxt, _ = context.WithTimeout(ctxt, defaultTimeout)
@@ -5205,7 +5269,11 @@ func testListPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	if len(paymentsResp.Payments) != 0 {
 		t.Fatalf("incorrect number of payments, got %v, want %v",
-			len(paymentsRespInit.Payments), 0)
+			len(paymentsResp.Payments), 0)
+	}
+	if paymentsResp.TotalPayments != 0 {
+		t.Fatalf("incorrect number of payments, got %v, want %v",
+			paymentsResp.TotalPayments, 0)
 	}
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
@@ -11487,7 +11555,7 @@ func sendAndAssertFailure(t *harnessTest, node *lntest.HarnessNode,
 
 	if result.FailureReason != failureReason {
 		t.Fatalf("payment should have been rejected due to "+
-			"%v, but got %v", failureReason, result.Status)
+			"%v, but got %v", failureReason, result.FailureReason)
 	}
 
 	return result
