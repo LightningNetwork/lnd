@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/urfave/cli"
@@ -57,6 +59,7 @@ func walletCommands() []cli.Command {
 				bumpCloseFeeCommand,
 				listSweepsCommand,
 				labelTxCommand,
+				publishTxCommand,
 				releaseOutputCommand,
 				listLeasesCommand,
 				psbtCommand,
@@ -473,6 +476,68 @@ func labelTransaction(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("Transaction: %v labelled with: %v\n", txid, label)
+
+	return nil
+}
+
+var publishTxCommand = cli.Command{
+	Name:      "publishtx",
+	Usage:     "Attempts to publish the passed transaction to the network.",
+	ArgsUsage: "tx_hex",
+	Description: `
+	Publish a hex-encoded raw transaction to the on-chain network. The 
+	wallet will continually attempt to re-broadcast the transaction on start up, until it 
+	enters the chain. The label parameter is optional and limited to 500 characters. Note 
+	that multi word labels must be contained in quotation marks ("").
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "label",
+			Usage: "(optional) transaction label",
+		},
+	},
+	Action: actionDecorator(publishTransaction),
+}
+
+func publishTransaction(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 || ctx.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, "publishtx")
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	tx, err := hex.DecodeString(ctx.Args().First())
+	if err != nil {
+		return err
+	}
+
+	// Deserialize the transaction to get the transaction hash.
+	msgTx := &wire.MsgTx{}
+	txReader := bytes.NewReader(tx)
+	if err := msgTx.Deserialize(txReader); err != nil {
+		return err
+	}
+
+	req := &walletrpc.Transaction{
+		TxHex: tx,
+		Label: ctx.String("label"),
+	}
+
+	_, err = walletClient.PublishTransaction(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(&struct {
+		TXID string `json:"txid"`
+	}{
+		TXID: msgTx.TxHash().String(),
+	})
 
 	return nil
 }
