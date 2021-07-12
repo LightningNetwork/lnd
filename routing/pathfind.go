@@ -680,6 +680,20 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			absoluteAttemptCost,
 		)
 
+		// If a low probability causes us to treat the distance as
+		// infinite, forgo adding this node to the distance map. Not
+		// only does this convserve memeory, it also prevents a
+		// situation where we keep exploring those nodes that are at
+		// infinity, but whose probability improves slightly. This can
+		// happen when we compute this node has infinite distance, but
+		// _passes_ the checks below against a previously inserted node
+		// (also at infinity) with slightly worse probabilty. In that
+		// case, the node will be readded to the distance heap and cause
+		// us to retraverse the node.
+		if tempDist == infinity {
+			return
+		}
+
 		// If there is already a best route stored, compare this
 		// candidate route with the best route so far.
 		current, ok := distance[fromVertex]
