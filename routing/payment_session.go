@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -65,6 +66,11 @@ const (
 	errMissingDependentFeature
 )
 
+type extendedNoRouteError struct {
+	err noRouteError
+	amt lnwire.MilliSatoshi
+}
+
 var (
 	// DefaultShardMinAmt is the default amount beyond which we won't try to
 	// further split the payment if no route is found. It is the minimum
@@ -101,6 +107,20 @@ func (e noRouteError) Error() string {
 	}
 }
 
+// Error returns the string representation of the extendedNoRouteError
+func (e extendedNoRouteError) Error() string {
+	switch e.err {
+	case errNoPathFound:
+		return fmt.Sprintf("unable to find a path to destination. Try to lower the amount to: %v", e.amt)
+	default:
+		return e.err.Error()
+	}
+}
+
+func (e extendedNoRouteError) Unwrap() error {
+	return e.err
+}
+
 // FailureReason converts a path finding error into a payment-level failure.
 func (e noRouteError) FailureReason() channeldb.FailureReason {
 	switch e {
@@ -120,6 +140,11 @@ func (e noRouteError) FailureReason() channeldb.FailureReason {
 	default:
 		return channeldb.FailureReasonError
 	}
+}
+
+// FailureReason converts a path finding error into a payment-level failure.
+func (e extendedNoRouteError) FailureReason() channeldb.FailureReason {
+	return e.err.FailureReason()
 }
 
 // PaymentSession is used during SendPayment attempts to provide routes to
@@ -311,7 +336,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		cleanup()
 
 		switch {
-		case err == errNoPathFound:
+		case errors.Is(err, errNoPathFound):
 			// Don't split if this is a legacy payment without mpp
 			// record.
 			if p.payment.PaymentAddr == nil {
@@ -347,21 +372,25 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				return nil, errNoPathFound
 			}
 
-			// This is where the magic happens. If we can't find a
-			// route, try it for half the amount.
-			maxAmt /= 2
+			var e extendedNoRouteError
+			if errors.As(err, &e) {
+				maxAmt = e.amt
+			} else {
+				// This is where the magic happens. If we can't find a
+				// route, try it for half the amount.
+				maxAmt /= 2
 
-			// Put a lower bound on the minimum shard size.
-			if maxAmt < p.minShardAmt {
-				p.log.Debugf("not splitting because minimum "+
-					"shard amount %v has been reached",
-					p.minShardAmt)
+				// Put a lower bound on the minimum shard size.
+				if maxAmt < p.minShardAmt {
+					p.log.Debugf("not splitting because minimum "+
+						"shard amount %v has been reached",
+						p.minShardAmt)
 
-				return nil, errNoPathFound
+					return nil, errNoPathFound
+				}
+				// Go pathfinding.
+				continue
 			}
-
-			// Go pathfinding.
-			continue
 
 		// If there isn't enough local bandwidth, there is no point in
 		// splitting. It won't be possible to create a complete set in
