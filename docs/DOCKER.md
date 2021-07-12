@@ -29,7 +29,7 @@ Docker container, adding the appropriate command-line options as parameters.
 You first need to build the `lnd` docker image:
 
 ```shell
-⛰  docker build --tag=myrepository/lnd --build-arg checkout=v0.11.1-beta .
+⛰  docker build --tag=myrepository/lnd --build-arg checkout=v0.13.1-beta .
 ```
 
 It is recommended that you checkout the latest released tag.
