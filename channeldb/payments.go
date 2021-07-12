@@ -682,26 +682,27 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts.
 func (db *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
-	return kvdb.Update(db, func(tx kvdb.RwTx) error {
-		payments := tx.ReadWriteBucket(paymentsRootBucket)
+	var (
+		// deleteBuckets is the set of payment buckets we need
+		// to delete.
+		deleteBuckets [][]byte
+
+		// deleteIndexes is the set of indexes pointing to these
+		// payments that need to be deleted.
+		deleteIndexes [][]byte
+
+		// deleteHtlcs maps a payment hash to the HTLC IDs we
+		// want to delete for that payment.
+		deleteHtlcs = make(map[lntypes.Hash][][]byte)
+	)
+
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
+		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
 		}
 
-		var (
-			// deleteBuckets is the set of payment buckets we need
-			// to delete.
-			deleteBuckets [][]byte
-
-			// deleteIndexes is the set of indexes pointing to these
-			// payments that need to be deleted.
-			deleteIndexes [][]byte
-
-			// deleteHtlcs maps a payment hash to the HTLC IDs we
-			// want to delete for that payment.
-			deleteHtlcs = make(map[lntypes.Hash][][]byte)
-		)
-		err := payments.ForEach(func(k, _ []byte) error {
+		return payments.ForEach(func(k, _ []byte) error {
 			bucket := payments.NestedReadBucket(k)
 			if bucket == nil {
 				// We only expect sub-buckets to be found in
@@ -785,42 +786,151 @@ func (db *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 			deleteIndexes = append(deleteIndexes, seqNrs...)
 			return nil
 		})
-		if err != nil {
-			return err
-		}
+	}, func() {})
+	if err != nil {
+		return err
+	}
 
-		// Delete the failed HTLC attempts we found.
-		for hash, htlcIDs := range deleteHtlcs {
-			bucket := payments.NestedReadWriteBucket(hash[:])
-			htlcsBucket := bucket.NestedReadWriteBucket(
-				paymentHtlcsBucket,
-			)
+	delHtlcAttempts := func(batch map[lntypes.Hash][][]byte) error {
+		return kvdb.Update(db, func(tx kvdb.RwTx) error {
+			payments := tx.ReadWriteBucket(paymentsRootBucket)
+			if payments == nil {
+				return nil
+			}
 
-			for _, aid := range htlcIDs {
-				err := htlcsBucket.DeleteNestedBucket(aid)
+			// Delete the failed HTLC attempts we found.
+			for hash, htlcIDs := range batch {
+				bucket := payments.NestedReadWriteBucket(
+					hash[:],
+				)
+				htlcsBucket := bucket.NestedReadWriteBucket(
+					paymentHtlcsBucket,
+				)
+
+				for _, aid := range htlcIDs {
+					err := htlcsBucket.DeleteNestedBucket(
+						aid,
+					)
+					if err != nil {
+						return err
+					}
+				}
+			}
+
+			return nil
+		}, func() {})
+	}
+
+	delPayments := func(batch [][]byte) error {
+		return kvdb.Update(db, func(tx kvdb.RwTx) error {
+			payments := tx.ReadWriteBucket(paymentsRootBucket)
+			if payments == nil {
+				return nil
+			}
+
+			for _, k := range batch {
+				err := payments.DeleteNestedBucket(k)
 				if err != nil {
 					return err
 				}
 			}
-		}
 
-		for _, k := range deleteBuckets {
-			if err := payments.DeleteNestedBucket(k); err != nil {
+			return nil
+		}, func() {})
+	}
+
+	delIndex := func(batch [][]byte) error {
+		return kvdb.Update(db, func(tx kvdb.RwTx) error {
+			payments := tx.ReadWriteBucket(paymentsRootBucket)
+			if payments == nil {
+				return nil
+			}
+
+			// Get our index bucket and delete all indexes pointing
+			// to the payments we are deleting.
+			indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
+			for _, k := range batch {
+				if err := indexBucket.Delete(k); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}, func() {})
+	}
+
+	// Run batched deletes to reduce the size of each commit. Let's do the
+	// HTLC attempts first.
+	log.Debugf("Deleting %d failed HTLC attempts...", len(deleteHtlcs))
+	const numOpsPerBatch = 1000
+	numHtlcsDropped := 0
+	htlcBatch := make(map[lntypes.Hash][][]byte, numOpsPerBatch)
+	for hash, htlcIDs := range deleteHtlcs {
+		htlcBatch[hash] = htlcIDs
+
+		if len(htlcBatch) == numOpsPerBatch {
+			if err := delHtlcAttempts(htlcBatch); err != nil {
 				return err
 			}
-		}
+			htlcBatch = make(
+				map[lntypes.Hash][][]byte, numOpsPerBatch,
+			)
+			numHtlcsDropped += numOpsPerBatch
 
-		// Get our index bucket and delete all indexes pointing to the
-		// payments we are deleting.
-		indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
-		for _, k := range deleteIndexes {
-			if err := indexBucket.Delete(k); err != nil {
+			log.Debugf("Deleted %d of %d failed HTLC attempts",
+				numHtlcsDropped, len(deleteHtlcs))
+		}
+	}
+
+	// There might be a batch that didn't get full yet, let's flush that.
+	if err := delHtlcAttempts(htlcBatch); err != nil {
+		return err
+	}
+
+	// Now batch the payment buckets themselves.
+	log.Debugf("Done deleting attempts, removing %d payments...",
+		len(deleteBuckets))
+	paymentBatch := make([][]byte, 0, numOpsPerBatch)
+	for idx, payment := range deleteBuckets {
+		paymentBatch = append(paymentBatch, payment)
+
+		batchFull := idx%numOpsPerBatch == 0 ||
+			idx == len(deleteBuckets)-1
+
+		if idx > 0 && batchFull {
+			if err := delPayments(paymentBatch); err != nil {
 				return err
 			}
-		}
+			paymentBatch = make([][]byte, 0, numOpsPerBatch)
 
-		return nil
-	}, func() {})
+			log.Debugf("Deleted %d of %d payments", idx,
+				len(deleteBuckets))
+		}
+	}
+
+	// And finally the indices.
+	log.Debugf("Done deleting payments, removing %d indices...",
+		len(deleteIndexes))
+	indexBatch := make([][]byte, 0, numOpsPerBatch)
+	for idx, index := range deleteIndexes {
+		indexBatch = append(indexBatch, index)
+
+		batchFull := idx%numOpsPerBatch == 0 ||
+			idx == len(deleteIndexes)-1
+
+		if idx > 0 && batchFull {
+			if err := delIndex(indexBatch); err != nil {
+				return err
+			}
+			indexBatch = make([][]byte, 0, numOpsPerBatch)
+
+			log.Debugf("Deleted %d of %d indices", idx,
+				len(deleteIndexes))
+		}
+	}
+
+	log.Debugf("Done deleting indices")
+	return nil
 }
 
 // fetchSequenceNumbers fetches all the sequence numbers associated with a
