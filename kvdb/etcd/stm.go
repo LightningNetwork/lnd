@@ -11,6 +11,12 @@ import (
 	v3 "go.etcd.io/etcd/clientv3"
 )
 
+const (
+	// defaultRangeCacheSize is the size of ranges we try to fetch
+	// by default.
+	defaultRangeCacheSize = 10
+)
+
 type CommitStats struct {
 	Rset    int
 	Wset    int
@@ -21,6 +27,185 @@ type CommitStats struct {
 type KV struct {
 	key string
 	val string
+}
+
+// RangeCache is used to cache range query results. This can be useful
+// if we query large ranges (eg. channel graph) as we do less requests
+// and also less overall operations in etcd.
+type RangeCache struct {
+	prefix string
+	size   int
+
+	last    *KV
+	lastSet bool
+
+	items []*KV
+	index map[string]int
+}
+
+// NewRangeCache creates a new range cache for the given prefix. The
+// size is the maximum range size the cache will store.
+func NewRangeCache(prefix string, size int) *RangeCache {
+	return &RangeCache{
+		prefix: prefix,
+		size:   size,
+		items:  make([]*KV, size),
+	}
+}
+
+// Last retrieves the last element of the range. It'll only do so once
+// and cache the last element afterwards.
+func (r *RangeCache) Last(s *stm) (*KV, error) {
+	if r.lastSet {
+		return r.last, nil
+	}
+
+	kvs, err := s.fetch(r.prefix, v3.WithLastKey()...)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(kvs) > 0 {
+		r.last = &kvs[0]
+	}
+
+	r.lastSet = true
+	return r.last, err
+}
+
+// fwd invalides the cache and reads forward with the given key. The amount
+// of elements read is at most the size of the cache.
+func (r *RangeCache) fwd(s *stm, key string, includeKey bool) error {
+	// Ask etcd to retrieve N keys that are in ascending order
+	// from the passed key.
+	opts := []v3.OpOption{
+		v3.WithFromKey(),
+		v3.WithSort(v3.SortByKey, v3.SortAscend),
+		v3.WithLimit(int64(r.size)),
+	}
+
+	if !includeKey {
+		key += "\x00"
+	}
+
+	kvs, err := s.fetch(key, opts...)
+	if err != nil {
+		return err
+	}
+
+	r.items = make([]*KV, r.size)
+	r.index = make(map[string]int)
+
+	for i := 0; i < r.size; i++ {
+		// Since we use WithFromKey, we also need to make sure,
+		// that the retrieved key has the prefix.
+		if i >= len(kvs) || !strings.HasPrefix(kvs[i].key, r.prefix) {
+			break
+		}
+
+		r.items[i] = &kvs[i]
+		r.index[kvs[i].key] = i
+	}
+
+	return nil
+}
+
+// bwd invalidates the cache and reads backward with the given key. The amount
+// of elements read is at most the size of the cache.
+func (r *RangeCache) bwd(s *stm, key string) error {
+	opts := []v3.OpOption{
+		v3.WithRange(key),
+		v3.WithSort(v3.SortByKey, v3.SortDescend),
+		v3.WithLimit(int64(r.size)),
+	}
+
+	kvs, err := s.fetch(r.prefix, opts...)
+	if err != nil {
+		return err
+	}
+
+	r.items = make([]*KV, r.size)
+	r.index = make(map[string]int)
+
+	for i := 0; i < len(kvs); i++ {
+		ridx := len(kvs) - i - 1
+		if ridx < len(kvs) {
+			r.items[i] = &kvs[ridx]
+			r.index[kvs[ridx].key] = i
+		}
+	}
+
+	return nil
+}
+
+// Next gets the next key/value after key. If includeKey is true it'll
+// get the key/value for the passed key if it's an exact match.
+func (r *RangeCache) Next(s *stm, key string, includeKey bool) (
+	*KV, error) {
+
+	if !strings.HasPrefix(key, r.prefix) {
+		return nil, nil
+	}
+
+	// Invalidate the cache if the key is not present, or if it's
+	// the last one in the cache.
+	idx, ok := r.index[key]
+	if !ok || idx == r.size-1 {
+		if err := r.fwd(s, key, includeKey); err != nil {
+			return nil, err
+		}
+	}
+
+	// Iterate forward until we find a key that is after the passed
+	// key (or equals if we include the start key).
+	for i, kv := range r.items {
+		// Break out of the search if there's no more
+		// elements (partial range).
+		if kv == nil {
+			break
+		}
+
+		// Found our next!
+		if kv.key > key || (includeKey && kv.key == key) {
+			return r.items[i], nil
+		}
+	}
+
+	return nil, nil
+}
+
+// Prev gets the previous key/value before the key.
+func (r *RangeCache) Prev(s *stm, key string) (*KV, error) {
+	if !strings.HasPrefix(key, r.prefix) {
+		return nil, nil
+	}
+
+	// Invalidate the cache if the key is not present, or if it's
+	// the first one in the cache.
+	idx, ok := r.index[key]
+	if !ok || (ok && idx == 0) {
+		if err := r.bwd(s, key); err != nil {
+			return nil, err
+		}
+	}
+
+	// Iterate backwards until we find a key that is before the
+	// passed key.
+	for i := len(r.items) - 1; i >= 0; i-- {
+		kv := r.items[i]
+
+		// Step until there's an element if it's a partial range.
+		if kv == nil {
+			continue
+		}
+
+		if kv.key < key {
+			// Found our prev!
+			return r.items[i], nil
+		}
+	}
+
+	return nil, nil
 }
 
 // STM is an interface for software transactional memory.
@@ -158,6 +343,8 @@ type stm struct {
 
 	// onCommit gets called upon commit.
 	onCommit func()
+
+	ranges map[string]*RangeCache
 }
 
 // STMOptions can be used to pass optional settings
@@ -467,6 +654,15 @@ func (s *stm) Get(key string) ([]byte, error) {
 	return nil, nil
 }
 
+// getRangeCache retrieves or creates the range cache for the passed prefix.
+func (s *stm) getRangeCache(prefix string) *RangeCache {
+	if _, ok := s.ranges[prefix]; !ok {
+		s.ranges[prefix] = NewRangeCache(prefix, defaultRangeCacheSize)
+	}
+
+	return s.ranges[prefix]
+}
+
 // First returns the first key/value matching prefix. If there's no key starting
 // with prefix, Last will return nil.
 func (s *stm) First(prefix string) (*KV, error) {
@@ -476,9 +672,7 @@ func (s *stm) First(prefix string) (*KV, error) {
 // Last returns the last key/value with prefix. If there's no key starting with
 // prefix, Last will return nil.
 func (s *stm) Last(prefix string) (*KV, error) {
-	// As we don't know the full range, fetch the last
-	// key/value with this prefix first.
-	resp, err := s.fetch(prefix, v3.WithLastKey()...)
+	last, err := s.getRangeCache(prefix).Last(s)
 	if err != nil {
 		return nil, err
 	}
@@ -488,8 +682,8 @@ func (s *stm) Last(prefix string) (*KV, error) {
 		found bool
 	)
 
-	if len(resp) > 0 {
-		kv = resp[0]
+	if last != nil {
+		kv = *last
 		found = true
 	}
 
@@ -526,32 +720,16 @@ func (s *stm) Prev(prefix, startKey string) (*KV, error) {
 	matchFound := false
 
 	for {
-		// Ask etcd to retrieve one key that is a
-		// match in descending order from the passed key.
-		opts := []v3.OpOption{
-			v3.WithRange(fetchKey),
-			v3.WithSort(v3.SortByKey, v3.SortDescend),
-			v3.WithLimit(1),
-		}
-
-		kvs, err := s.fetch(prefix, opts...)
+		prev, err := s.getRangeCache(prefix).Prev(s, fetchKey)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(kvs) == 0 {
+		if prev == nil {
 			break
 		}
 
-		kv := &kvs[0]
-
-		// WithRange and WithPrefix can't be used
-		// together, so check prefix here. If the
-		// returned key no longer has the prefix,
-		// then break out.
-		if !strings.HasPrefix(kv.key, prefix) {
-			break
-		}
+		kv := *prev
 
 		// Fetch the prior key if this is deleted.
 		if put, ok := s.wset[kv.key]; ok && put.op.IsDelete() {
@@ -559,13 +737,13 @@ func (s *stm) Prev(prefix, startKey string) (*KV, error) {
 			continue
 		}
 
-		result = *kv
+		result = kv
 		matchFound = true
 
 		break
 	}
 
-	// Closre holding all checks to find a possibly
+	// Closure holding all checks to find a possibly
 	// better match.
 	matches := func(key string) bool {
 		if !strings.HasPrefix(key, prefix) {
@@ -617,45 +795,20 @@ func (s *stm) next(prefix, startKey string, includeStartKey bool) (*KV, error) {
 	var result KV
 
 	fetchKey := startKey
-	firstFetch := true
 	matchFound := false
 
 	for {
-		// Ask etcd to retrieve one key that is a
-		// match in ascending order from the passed key.
-		opts := []v3.OpOption{
-			v3.WithFromKey(),
-			v3.WithSort(v3.SortByKey, v3.SortAscend),
-			v3.WithLimit(1),
-		}
-
-		// By default we include the start key too
-		// if it is a full match.
-		if includeStartKey && firstFetch {
-			firstFetch = false
-		} else {
-			// If we'd like to retrieve the first key
-			// after the start key.
-			fetchKey += "\x00"
-		}
-
-		kvs, err := s.fetch(fetchKey, opts...)
+		next, err := s.getRangeCache(prefix).Next(s, fetchKey, includeStartKey)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(kvs) == 0 {
+		if next == nil {
 			break
 		}
 
-		kv := &kvs[0]
-		// WithRange and WithPrefix can't be used
-		// together, so check prefix here. If the
-		// returned key no longer has the prefix,
-		// then break the fetch loop.
-		if !strings.HasPrefix(kv.key, prefix) {
-			break
-		}
+		includeStartKey = false
+		kv := *next
 
 		// Move on to fetch starting with the next
 		// key if this one is marked deleted.
@@ -664,7 +817,7 @@ func (s *stm) next(prefix, startKey string, includeStartKey bool) (*KV, error) {
 			continue
 		}
 
-		result = *kv
+		result = kv
 		matchFound = true
 
 		break
@@ -800,6 +953,7 @@ func (s *stm) Commit() error {
 func (s *stm) Rollback() {
 	s.rset = make(map[string]stmGet)
 	s.wset = make(map[string]stmPut)
+	s.ranges = make(map[string]*RangeCache)
 	s.getOpts = nil
 	s.revision = math.MaxInt64 - 1
 }
