@@ -474,7 +474,7 @@ type ChannelCommitment struct {
 
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
 // the default usable state, or a state where it shouldn't be used.
-type ChannelStatus uint8
+type ChannelStatus uint64
 
 var (
 	// ChanStatusDefault is the normal state of an open channel.
