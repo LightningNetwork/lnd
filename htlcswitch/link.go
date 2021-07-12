@@ -1998,6 +1998,15 @@ func (l *channelLink) updateCommitTxOrFail() bool {
 // commitment to their commitment chain which includes all the latest updates
 // we've received+processed up to this point.
 func (l *channelLink) updateCommitTx() error {
+	// If we can't update the commitment at this time, avoid persisting the
+	// open circuits incrementally and hitting disk. We start the pending
+	// commit ticker so that we will eventually retry and persist the entire
+	// set in one db operation once the commitment window reopens.
+	if !l.channel.CanSignNextCommitment() {
+		l.cfg.PendingCommitTicker.Resume()
+		return nil
+	}
+
 	// Preemptively write all pending keystones to disk, just in case the
 	// HTLCs we have in memory are included in the subsequent attempt to
 	// sign a commitment state.

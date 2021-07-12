@@ -3490,6 +3490,26 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	return nil
 }
 
+// CanSignNextCommitment returns true if the channel is in a state where we can
+// sign a new commitment, i.e. we have the remote party's next revocation point
+// and we don't have any unacked commitments that we've signed for.
+func (lc *LightningChannel) CanSignNextCommitment() bool {
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.canSignNextCommitment()
+}
+
+// canSignNextCommitment returns true if the channel is in a state where we can
+// sign a new commitment, i.e. we have the remote party's next revocation point
+// and we don't have any unacked commitments that we've signed for.
+//
+// NOTE: Must be called with the channel's mutex held.
+func (lc *LightningChannel) canSignNextCommitment() bool {
+	commitPoint := lc.channelState.RemoteNextRevocation
+	return commitPoint != nil && !lc.remoteCommitChain.hasUnackedCommitment()
+}
+
 // SignNextCommitment signs a new commitment which includes any previous
 // unsettled HTLCs, any new HTLCs, and any modifications to prior HTLCs
 // committed in previous commitment updates. Signing a new commitment
@@ -3523,9 +3543,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	// don't yet have the initial next revocation point of the remote
 	// party, then we're unable to create new states. Each time we create a
 	// new state, we consume a prior revocation point.
-	commitPoint := lc.channelState.RemoteNextRevocation
-	if lc.remoteCommitChain.hasUnackedCommitment() || commitPoint == nil {
-
+	if !lc.canSignNextCommitment() {
 		return sig, htlcSigs, nil, ErrNoWindow
 	}
 
@@ -3547,6 +3565,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig, []ch
 	// Grab the next commitment point for the remote party. This will be
 	// used within fetchCommitmentView to derive all the keys necessary to
 	// construct the commitment state.
+	commitPoint := lc.channelState.RemoteNextRevocation
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, false, lc.channelState.ChanType,
 		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
