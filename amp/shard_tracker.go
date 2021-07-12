@@ -1,8 +1,6 @@
 package amp
 
 import (
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"sync"
 
@@ -52,7 +50,8 @@ type ShardTracker struct {
 
 	sharer Sharer
 
-	shards map[uint64]*Child
+	shards     map[uint64]*Child
+	childIndex uint32
 	sync.Mutex
 }
 
@@ -90,19 +89,17 @@ func (s *ShardTracker) NewShard(pid uint64, last bool) (shards.PaymentShard,
 	s.Lock()
 	defer s.Unlock()
 
-	// Use a random child index.
-	var childIndex [4]byte
-	if _, err := rand.Read(childIndex[:]); err != nil {
-		return nil, err
-	}
-	idx := binary.BigEndian.Uint32(childIndex[:])
-
 	// Depending on whether we are requesting the last shard or not, either
 	// split the current share into two, or get a Child directly from the
 	// current sharer.
 	var child *Child
 	if last {
-		child = s.sharer.Child(idx)
+		// Use the current child index counter when generating the
+		// chilld, then increment it. This ensures we are creating
+		// unique hashes even when reusing the same share for the last
+		// shard.
+		child = s.sharer.Child(s.childIndex)
+		s.childIndex++
 
 		// If this was the last shard, set the current share to the
 		// zero share to indicate we cannot split it further.
@@ -114,7 +111,11 @@ func (s *ShardTracker) NewShard(pid uint64, last bool) (shards.PaymentShard,
 		}
 
 		s.sharer = sharer
-		child = left.Child(idx)
+
+		// Since splitting the current share added new 32-byte
+		// randomness to the shares, we reset the childIndex.
+		child = left.Child(0)
+		s.childIndex = 0
 	}
 
 	// Track the new child and return the shard.
