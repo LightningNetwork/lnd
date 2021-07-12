@@ -1,0 +1,4 @@
+macaroon:
+
+	- verify that all signature calculations to correspond exactly
+	with libmacaroons.

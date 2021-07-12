@@ -1,0 +1,15 @@
+language: go
+
+go:
+  - "1.6.x"
+  - "1.7.x"
+  - "1.8.x"
+  - "1.9.x"
+  - "1.10.x"
+
+env:
+  - TRAVIS_GOARCH=amd64
+  - TRAVIS_GOARCH=386 
+
+before_install:
+  - export GOARCH=$TRAVIS_GOARCH

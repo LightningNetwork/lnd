@@ -62,7 +62,6 @@ fuzz/**/suppressions
 *.db
 *.bin
 
-vendor
 *.idea
 *.iml
 profile.cov

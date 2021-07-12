@@ -1,0 +1,39 @@
+PASS
+coverage: 100.0% of statements
+ok  	github.com/conformal/btcwallet/walletdb	0.130s
+github.com\conformal\btcwallet\walletdb\interface.go:190:	RegisterDriver		100.0%
+github.com\conformal\btcwallet\walletdb\interface.go:201:	SupportedDrivers	100.0%
+github.com\conformal\btcwallet\walletdb\interface.go:214:	Create			100.0%
+github.com\conformal\btcwallet\walletdb\interface.go:228:	Open			100.0%
+total:								(statements)		100.0%
+============================================================
+PASS
+coverage: 91.7% of statements
+ok  	github.com/conformal/btcwallet/walletdb/bdb	0.149s
+github.com\conformal\btcwallet\walletdb\bdb\db.go:28:		convertErr		76.9%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:74:		Bucket			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:90:		CreateBucket		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:103:		CreateBucketIfNotExists	100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:116:		DeleteBucket		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:129:		ForEach			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:136:		Writable		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:145:		Put			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:157:		Get			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:166:		Delete			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:185:		RootBucket		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:193:		Commit			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:201:		Rollback		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:227:		Begin			85.7%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:249:		View			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:270:		Update			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:294:		Namespace		93.3%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:329:		DeleteNamespace		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:339:		WriteTo			0.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:348:		Close			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:353:		fileExists		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\db.go:364:		openDB			100.0%
+github.com\conformal\btcwallet\walletdb\bdb\driver.go:34:	parseArgs		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\driver.go:50:	openDBDriver		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\driver.go:60:	createDBDriver		100.0%
+github.com\conformal\btcwallet\walletdb\bdb\driver.go:69:	init			66.7%
+total:								(statements)		91.7%

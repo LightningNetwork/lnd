@@ -39,9 +39,9 @@ GOACC_COMMIT :=80342ae2e0fcf265e99e76bcc4efd022c7c3811b
 GOFUZZ_COMMIT := 21309f307f61
 
 DEPGET := cd /tmp && GO111MODULE=on go get -v
-GOBUILD := GO111MODULE=on go build -v
-GOINSTALL := GO111MODULE=on go install -v
-GOTEST := GO111MODULE=on go test 
+GOBUILD := GO111MODULE=on go build -v -mod=vendor
+GOINSTALL := GO111MODULE=on go install -v -mod=vendor
+GOTEST := GO111MODULE=on go test -mod=vendor
 
 GOVERSION := $(shell go version | awk '{print $$3}')
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go")
