@@ -1505,7 +1505,7 @@ message Peer {
     // Satoshis received from this peer
     int64 sat_recv = 7;
 
-    // A channel is inbound if the counterparty initiated the channel
+    // The inbound is true if this peer was the initiator of the connection to us
     bool inbound = 8;
 
     // Ping time to this peer
