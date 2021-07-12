@@ -144,3 +144,31 @@ func MarshalUtxos(utxos []*lnwallet.Utxo, activeNetParams *chaincfg.Params) (
 
 	return res, nil
 }
+
+// MarshallOutputType translates a txscript.ScriptClass into a
+// lnrpc.OutputScriptType.
+func MarshallOutputType(o txscript.ScriptClass) (ret OutputScriptType) {
+	// Translate txscript ScriptClass type to the proper gRPC proto
+	// output script type.
+	switch o {
+	case txscript.PubKeyHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_PUBKEY_HASH
+	case txscript.ScriptHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_SCRIPT_HASH
+	case txscript.WitnessV0PubKeyHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH
+	case txscript.WitnessV0ScriptHashTy:
+		ret = OutputScriptType_SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH
+	case txscript.PubKeyTy:
+		ret = OutputScriptType_SCRIPT_TYPE_PUBKEY
+	case txscript.MultiSigTy:
+		ret = OutputScriptType_SCRIPT_TYPE_MULTISIG
+	case txscript.NullDataTy:
+		ret = OutputScriptType_SCRIPT_TYPE_NULLDATA
+	case txscript.NonStandardTy:
+		ret = OutputScriptType_SCRIPT_TYPE_NON_STANDARD
+	case txscript.WitnessUnknownTy:
+		ret = OutputScriptType_SCRIPT_TYPE_WITNESS_UNKNOWN
+	}
+	return
+}
