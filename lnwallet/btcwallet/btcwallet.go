@@ -933,7 +933,6 @@ func minedTransactionsToDetails(
 			isOurAddress[int(o.Index)] = true
 		}
 
-		var destAddresses []btcutil.Address
 		var outputDetails []lnwallet.OutputDetail
 		for i, txOut := range wireTx.TxOut {
 			var addresses []btcutil.Address
@@ -942,7 +941,6 @@ func minedTransactionsToDetails(
 			)
 			if err == nil {
 				// Add supported addresses.
-				destAddresses = append(destAddresses, outAddresses...)
 				addresses = outAddresses
 			}
 
@@ -963,7 +961,6 @@ func minedTransactionsToDetails(
 			BlockHeight:      block.Height,
 			Timestamp:        block.Timestamp,
 			TotalFees:        int64(tx.Fee),
-			DestAddresses:    destAddresses,
 			OutputDetails:    outputDetails,
 			RawTx:            tx.Transaction,
 			Label:            tx.Label,
@@ -1005,7 +1002,6 @@ func unminedTransactionsToDetail(
 		isOurAddress[int(o.Index)] = true
 	}
 
-	var destAddresses []btcutil.Address
 	var outputDetails []lnwallet.OutputDetail
 	for i, txOut := range wireTx.TxOut {
 		var addresses []btcutil.Address
@@ -1014,7 +1010,6 @@ func unminedTransactionsToDetail(
 		)
 		if err == nil {
 			// Add supported addresses.
-			destAddresses = append(destAddresses, outAddresses...)
 			addresses = outAddresses
 		}
 
@@ -1032,7 +1027,6 @@ func unminedTransactionsToDetail(
 		Hash:          *summary.Hash,
 		TotalFees:     int64(summary.Fee),
 		Timestamp:     summary.Timestamp,
-		DestAddresses: destAddresses,
 		OutputDetails: outputDetails,
 		RawTx:         summary.Transaction,
 		Label:         summary.Label,

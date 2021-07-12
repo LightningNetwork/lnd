@@ -125,9 +125,6 @@ type TransactionDetail struct {
 	// TotalFees is the total fee in satoshis paid by this transaction.
 	TotalFees int64
 
-	// DestAddresses are the destinations for a transaction
-	DestAddresses []btcutil.Address
-
 	// OutputDetails contains output data for each destination address, such
 	// as the output script and amount.
 	OutputDetails []OutputDetail
