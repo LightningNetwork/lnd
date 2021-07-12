@@ -687,8 +687,8 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 
 // ValidatePassword assures the password meets all of our constraints.
 func ValidatePassword(password []byte) error {
-	// Passwords should have a length of at least 8 characters.
-	if len(password) < 8 {
+	// Passwords should have a length of at least 8 characters, but allow default password.
+	if len(password) < 8 && string(password) != string(lnwallet.DefaultPrivatePassphrase) && string(password) != string(lnwallet.DefaultPublicPassphrase) {
 		return errors.New("password must have at least 8 characters")
 	}
 
