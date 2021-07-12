@@ -128,6 +128,12 @@ To build the image using the most current tag:
 ⛰  docker build . --build-arg checkout=$(git describe --tags `git rev-list --tags --max-count=1`) -t myrepository/lnd:latest-tag
 ```
 
+or
+
+```shell
+⛰  make docker-release tag=$(git describe --tags `git rev-list --tags --max-count=1`)
+```
+
 Once the image has been built and tagged locally, start the container:
 
 ```shell
