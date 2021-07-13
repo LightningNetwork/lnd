@@ -1305,7 +1305,6 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Dave should sweep his funds immediately, as they are not timelocked.
 	// We also expect Dave to sweep his anchor, if present.
-
 	_, err = waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
@@ -1341,7 +1340,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// After the Carol's output matures, she should also reclaim her funds.
 	//
 	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
-	// we already mined one block after the commitmment was published, so
+	// we already mined one block after the commitment was published, so
 	// take that into account.
 	mineBlocks(t, net, defaultCSV-1-1, 0)
 	carolSweep, err := waitForTxInMempool(
@@ -1362,7 +1361,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 			return fmt.Errorf("unable to get carol's balance: %v", err)
 		}
 
-		carolBalance := carolBalResp.ConfirmedBalance
+		carolBalance := carolBalResp.TotalBalance
 		if carolBalance <= carolStartingBalance {
 			return fmt.Errorf("expected carol to have balance "+
 				"above %d, instead had %v", carolStartingBalance,
