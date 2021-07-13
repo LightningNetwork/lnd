@@ -489,6 +489,10 @@ func (fv *FeatureVector) Features() map[FeatureBit]struct{} {
 // Clone copies a feature vector, carrying over its feature bits. The feature
 // names are not copied.
 func (fv *FeatureVector) Clone() *FeatureVector {
-	features := fv.RawFeatureVector.Clone()
+	var features *RawFeatureVector
+
+	if fv.RawFeatureVector != nil {
+		features = fv.RawFeatureVector.Clone()
+	}
 	return NewFeatureVector(features, fv.featureNames)
 }

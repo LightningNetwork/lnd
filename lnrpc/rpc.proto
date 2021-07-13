@@ -515,6 +515,47 @@ service Lightning {
     */
     rpc ListPermissions (ListPermissionsRequest)
         returns (ListPermissionsResponse);
+
+    /* lncli: `sendcustom`
+    SendCustomMessage sends a custom peer message.
+    */
+    rpc SendCustomMessage (SendCustomMessageRequest)
+        returns (SendCustomMessageResponse);
+
+    /* lncli: `subscribecustom`
+    SubscribeCustomMessages subscribes to a stream of incoming custom peer
+    messages.
+    */
+    rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
+        returns (stream CustomMessage);
+}
+
+message SubscribeCustomMessagesRequest {
+}
+
+message CustomMessage {
+    // Peer from which the message originates
+    bytes peer = 1;
+
+    // Message type. This value will be in the custom range (>= 32768).
+    uint32 type = 2;
+
+    // Raw message data
+    bytes data = 3;
+}
+
+message SendCustomMessageRequest {
+    // Peer to send the message to
+    bytes peer = 1;
+
+    // Message type. This value needs to be in the custom range (>= 32768).
+    uint32 type = 2;
+
+    // Raw message data.
+    bytes data = 3;
+}
+
+message SendCustomMessageResponse {
 }
 
 message Utxo {

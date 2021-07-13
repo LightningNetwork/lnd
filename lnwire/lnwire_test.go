@@ -240,7 +240,7 @@ func TestMaxOutPointIndex(t *testing.T) {
 func TestEmptyMessageUnknownType(t *testing.T) {
 	t.Parallel()
 
-	fakeType := MessageType(math.MaxUint16)
+	fakeType := CustomTypeStart - 1
 	if _, err := makeEmptyMessage(fakeType); err == nil {
 		t.Fatalf("should not be able to make an empty message of an " +
 			"unknown type")

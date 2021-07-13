@@ -826,6 +826,71 @@
         ]
       }
     },
+    "/v1/custommessage/send": {
+      "post": {
+        "summary": "lncli: `sendcustom`\nSendCustomMessage sends a custom peer message.",
+        "operationId": "SendCustomMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCustomMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendCustomMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/custommessage/subscribe": {
+      "get": {
+        "summary": "lncli: `subscribecustom`\nSubscribeCustomMessages subscribes to a stream of incoming custom peer\nmessages.",
+        "operationId": "SubscribeCustomMessages",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcCustomMessage"
+                },
+                "error": {
+                  "$ref": "#/definitions/runtimeStreamError"
+                }
+              },
+              "title": "Stream result of lnrpcCustomMessage"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/debuglevel": {
       "post": {
         "summary": "lncli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\nlnd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
@@ -3553,6 +3618,26 @@
     "lnrpcConnectPeerResponse": {
       "type": "object"
     },
+    "lnrpcCustomMessage": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer from which the message originates"
+        },
+        "type": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Message type. This value will be in the custom range (\u003e= 32768)."
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "title": "Raw message data"
+        }
+      }
+    },
     "lnrpcDebugLevelRequest": {
       "type": "object",
       "properties": {
@@ -5630,6 +5715,29 @@
           "title": "The transaction ID of the transaction"
         }
       }
+    },
+    "lnrpcSendCustomMessageRequest": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer to send the message to"
+        },
+        "type": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Message type. This value needs to be in the custom range (\u003e= 32768)."
+        },
+        "data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Raw message data."
+        }
+      }
+    },
+    "lnrpcSendCustomMessageResponse": {
+      "type": "object"
     },
     "lnrpcSendManyRequest": {
       "type": "object",

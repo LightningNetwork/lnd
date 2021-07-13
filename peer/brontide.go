@@ -94,6 +94,11 @@ type newChannelMsg struct {
 	err     chan error
 }
 
+type customMsg struct {
+	peer [33]byte
+	msg  lnwire.Custom
+}
+
 // closeMsg is a wrapper struct around any wire messages that deal with the
 // cooperative channel closure negotiation process. This struct includes the
 // raw channel ID targeted along with the original message.
@@ -317,6 +322,10 @@ type Config struct {
 	// ChannelCommitBatchSize is the maximum number of channel state updates
 	// that is accumulated before signing a new commitment.
 	ChannelCommitBatchSize uint32
+
+	// HandleCustomMessage is called whenever a custom message is received
+	// from the peer.
+	HandleCustomMessage func(peer [33]byte, msg *lnwire.Custom) error
 
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
@@ -1422,6 +1431,13 @@ out:
 
 			discStream.AddMsg(msg)
 
+		case *lnwire.Custom:
+			err := p.cfg.HandleCustomMessage(p.PubKey(), msg)
+			if err != nil {
+				p.storeError(err)
+				peerLog.Errorf("peer: %v, %v", p, err)
+			}
+
 		default:
 			// If the message we received is unknown to us, store
 			// the type to track the failure.
@@ -1661,6 +1677,8 @@ func messageSummary(msg lnwire.Message) string {
 			time.Unix(int64(msg.FirstTimestamp), 0),
 			msg.TimestampRange)
 
+	case *lnwire.Custom:
+		return fmt.Sprintf("type=%d", msg.Type)
 	}
 
 	return ""
@@ -1689,8 +1707,15 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 			preposition = "from"
 		}
 
+		var msgType string
+		if msg.MsgType() < lnwire.CustomTypeStart {
+			msgType = msg.MsgType().String()
+		} else {
+			msgType = "custom"
+		}
+
 		return fmt.Sprintf("%v %v%s %v %s", summaryPrefix,
-			msg.MsgType(), summary, preposition, p)
+			msgType, summary, preposition, p)
 	}))
 
 	switch m := msg.(type) {

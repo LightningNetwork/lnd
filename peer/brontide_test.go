@@ -2,9 +2,11 @@ package peer
 
 import (
 	"bytes"
+	"io/ioutil"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -16,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1002,4 +1005,105 @@ func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
 	}
 
 	return script
+}
+
+// TestPeerCustomMessage tests custom message exchange between peers.
+func TestPeerCustomMessage(t *testing.T) {
+	t.Parallel()
+
+	// Set up node Alice.
+	alicePath, err := ioutil.TempDir("", "alicedb")
+	require.NoError(t, err)
+
+	dbAlice, err := channeldb.Open(alicePath)
+	require.NoError(t, err)
+
+	aliceKey, err := btcec.NewPrivateKey(btcec.S256())
+	require.NoError(t, err)
+
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
+	)
+
+	writePool := pool.NewWrite(
+		writeBufferPool, 1, timeout,
+	)
+	require.NoError(t, writePool.Start())
+
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+
+	readPool := pool.NewRead(
+		readBufferPool, 1, timeout,
+	)
+	require.NoError(t, readPool.Start())
+
+	mockConn := newMockConn(t, 1)
+
+	receivedCustomChan := make(chan *customMsg)
+
+	remoteKey := [33]byte{8}
+
+	alicePeer := NewBrontide(Config{
+		PubKeyBytes: remoteKey,
+		ChannelDB:   dbAlice,
+		Addr: &lnwire.NetAddress{
+			IdentityKey: aliceKey.PubKey(),
+		},
+		PrunePersistentPeerConnection: func([33]byte) {},
+		Features:                      lnwire.EmptyFeatureVector(),
+		LegacyFeatures:                lnwire.EmptyFeatureVector(),
+		WritePool:                     writePool,
+		ReadPool:                      readPool,
+		Conn:                          mockConn,
+		HandleCustomMessage: func(peer [33]byte, msg *lnwire.Custom) error {
+			receivedCustomChan <- &customMsg{
+				peer: peer,
+				msg:  *msg,
+			}
+			return nil
+		},
+	})
+
+	// Set up the init sequence.
+	go func() {
+		// Read init message.
+		<-mockConn.writtenMessages
+
+		// Write the init reply message.
+		initReplyMsg := lnwire.NewInitMessage(lnwire.NewRawFeatureVector(lnwire.DataLossProtectRequired), lnwire.NewRawFeatureVector())
+		var b bytes.Buffer
+		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
+		assert.NoError(t, err)
+
+		mockConn.readMessages <- b.Bytes()
+	}()
+
+	// Start the peer.
+	require.NoError(t, alicePeer.Start())
+
+	// Send a custom message.
+	customMsg, err := lnwire.NewCustom(lnwire.MessageType(40000), []byte{1, 2, 3})
+	require.NoError(t, err)
+
+	require.NoError(t, alicePeer.SendMessageLazy(false, customMsg))
+
+	// Verify that it is passed down to the noise layer correctly.
+	writtenMsg := <-mockConn.writtenMessages
+	require.Equal(t, []byte{0x9c, 0x40, 0x1, 0x2, 0x3}, writtenMsg)
+
+	// Receive a custom message.
+	receivedCustomMsg, err := lnwire.NewCustom(lnwire.MessageType(40001), []byte{4, 5, 6})
+	require.NoError(t, err)
+
+	receivedData := []byte{0x9c, 0x41, 0x4, 0x5, 0x6}
+	mockConn.readMessages <- receivedData
+
+	// Verify that it is propagated up to the custom message handler.
+	receivedCustom := <-receivedCustomChan
+	require.Equal(t, remoteKey, receivedCustom.peer)
+	require.Equal(t, receivedCustomMsg, &receivedCustom.msg)
 }

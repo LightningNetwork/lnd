@@ -512,6 +512,14 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/SendCustomMessage": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SubscribeCustomMessages": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 }
 
@@ -6899,4 +6907,60 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 	// TODO(roasbeef): return resulting state? also add a method to query
 	// current state?
 	return &lnrpc.FundingStateStepResp{}, nil
+}
+
+// SendCustomMessage sends a custom peer message.
+func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustomMessageRequest) (
+	*lnrpc.SendCustomMessageResponse, error) {
+
+	peer, err := route.NewVertexFromBytes(req.Peer)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.server.SendCustomMessage(
+		peer, lnwire.MessageType(req.Type), req.Data,
+	)
+	switch {
+	case err == ErrPeerNotConnected:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, err
+	}
+
+	return &lnrpc.SendCustomMessageResponse{}, nil
+}
+
+// SubscribeCustomMessages subscribes to a stream of incoming custom peer
+// messages.
+func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRequest,
+	server lnrpc.Lightning_SubscribeCustomMessagesServer) error {
+
+	client, err := r.server.SubscribeCustomMessages()
+	if err != nil {
+		return err
+	}
+	defer client.Cancel()
+
+	for {
+		select {
+		case <-client.Quit():
+			return errors.New("shutdown")
+
+		case <-server.Context().Done():
+			return server.Context().Err()
+
+		case update := <-client.Updates():
+			customMsg := update.(*CustomMessage)
+
+			err := server.Send(&lnrpc.CustomMessage{
+				Peer: customMsg.Peer[:],
+				Data: customMsg.Msg.Data,
+				Type: uint32(customMsg.Msg.Type),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
 }
