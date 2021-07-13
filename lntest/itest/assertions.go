@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1713,4 +1714,31 @@ func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client) (
 			return payment, nil
 		}
 	}
+}
+
+// assertNumUTXOs waits for the given number of UTXOs to be available or fails
+// if that isn't the case before the default timeout.
+func assertNumUTXOs(t *testing.T, node *lntest.HarnessNode, expectedUtxos int) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	err := wait.NoError(func() error {
+		resp, err := node.ListUnspent( // nolint:staticcheck
+			ctxt, &lnrpc.ListUnspentRequest{
+				MinConfs: 1,
+				MaxConfs: math.MaxInt32,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error listing unspent: %v", err)
+		}
+
+		if len(resp.Utxos) != expectedUtxos {
+			return fmt.Errorf("not enough UTXOs, got %d wanted %d",
+				len(resp.Utxos), expectedUtxos)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err, "wait for listunspent")
 }

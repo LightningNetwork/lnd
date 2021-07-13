@@ -772,7 +772,15 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 		unlockReq.RecoveryWindow = 1000
 	}
 
-	return node.Unlock(context.Background(), unlockReq)
+	if err := node.Unlock(context.Background(), unlockReq); err != nil {
+		return err
+	}
+
+	// Give the node some time to catch up with the chain before we continue
+	// with the tests.
+	ctxc, done := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer done()
+	return node.WaitForBlockchainSync(ctxc)
 }
 
 // RestartNodeNoUnlock attempts to restart a lightning node by shutting it down
