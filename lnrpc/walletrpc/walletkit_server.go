@@ -993,9 +993,6 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 	// PSBT and copy the RPC information over.
 	case req.GetRaw() != nil:
 		tpl := req.GetRaw()
-		if len(tpl.Outputs) == 0 {
-			return nil, fmt.Errorf("no outputs specified")
-		}
 
 		txOut := make([]*wire.TxOut, 0, len(tpl.Outputs))
 		for addrStr, amt := range tpl.Outputs {

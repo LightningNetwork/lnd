@@ -609,10 +609,6 @@ func fundPsbt(ctx *cli.Context) error {
 			return fmt.Errorf("error parsing outputs JSON: %v",
 				err)
 		}
-		if len(amountToAddr) == 0 {
-			return fmt.Errorf("at least one output must be " +
-				"specified")
-		}
 		tpl.Outputs = amountToAddr
 
 		// Inputs are optional.
