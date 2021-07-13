@@ -514,6 +514,14 @@ type Manager struct {
 	handleFundingLockedMtx      sync.RWMutex
 	handleFundingLockedBarriers map[lnwire.ChannelID]struct{}
 
+	// receivedFundingLockedSignals is a map we'll use to synchronize the
+	// handler of the received fundingLocked message with the funding state
+	// machine. The reason we need this is because the spec requires the
+	// fundingLocked message to have been received before we send our
+	// ChannelUpdate to the peer.
+	receivedFundingLockedSignals map[lnwire.ChannelID]chan struct{}
+	receivedFundingLockedMtx     sync.Mutex
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -527,18 +535,27 @@ const (
 	// markedOpen is the opening state of a channel if the funding
 	// transaction is confirmed on-chain, but fundingLocked is not yet
 	// successfully sent to the other peer.
-	markedOpen channelOpeningState = iota
+	markedOpen channelOpeningState = 0
+
+	// addedToLocalGraph marks that we have added the channel announcement
+	// for the channel to our local routing graph, and will be known to the
+	// gossiper and router.
+	addedToLocalGraph channelOpeningState = 3
 
 	// fundingLockedSent is the opening state of a channel if the
 	// fundingLocked message has successfully been sent to the other peer,
-	// but we still haven't announced the channel to the network.
-	fundingLockedSent
+	// but we haven't yet received the channel peer's fundingLocked.
+	fundingLockedSent channelOpeningState = 1
 
-	// addedToRouterGraph is the opening state of a channel if the
-	// channel has been successfully added to the router graph
-	// immediately after the fundingLocked message has been sent, but
-	// we still haven't announced the channel to the network.
-	addedToRouterGraph
+	// fundingLockedReceived is the opening state we'll be in after we have
+	// received funding locked from the channel peer.
+	fundingLockedReceived channelOpeningState = 4
+
+	// chanUpdateSent is the opening state of a channel if the channel has
+	// been successfully added to the router graph and we have sent our
+	// ChannelUpdate to the channel peer, but we still haven't announced
+	// the channel to the network.
+	chanUpdateSent channelOpeningState = 2
 )
 
 var (
@@ -558,16 +575,17 @@ var (
 // fundingManager.
 func NewFundingManager(cfg Config) (*Manager, error) {
 	return &Manager{
-		cfg:                         &cfg,
-		chanIDKey:                   cfg.TempChanIDSeed,
-		activeReservations:          make(map[serializedPubKey]pendingChannels),
-		signedReservations:          make(map[lnwire.ChannelID][32]byte),
-		newChanBarriers:             make(map[lnwire.ChannelID]chan struct{}),
-		fundingMsgs:                 make(chan *fundingMsg, msgBufferSize),
-		fundingRequests:             make(chan *InitFundingMsg, msgBufferSize),
-		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
-		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
-		quit:                        make(chan struct{}),
+		cfg:                          &cfg,
+		chanIDKey:                    cfg.TempChanIDSeed,
+		activeReservations:           make(map[serializedPubKey]pendingChannels),
+		signedReservations:           make(map[lnwire.ChannelID][32]byte),
+		newChanBarriers:              make(map[lnwire.ChannelID]chan struct{}),
+		fundingMsgs:                  make(chan *fundingMsg, msgBufferSize),
+		fundingRequests:              make(chan *InitFundingMsg, msgBufferSize),
+		localDiscoverySignals:        make(map[lnwire.ChannelID]chan struct{}),
+		receivedFundingLockedSignals: make(map[lnwire.ChannelID]chan struct{}),
+		handleFundingLockedBarriers:  make(map[lnwire.ChannelID]struct{}),
+		quit:                         make(chan struct{}),
 	}, nil
 }
 
@@ -929,8 +947,33 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	switch channelState {
 
 	// The funding transaction was confirmed, but we did not successfully
-	// send the fundingLocked message to the peer, so let's do that now.
+	// add it to our graph yet, do that now.
 	case markedOpen:
+		// We add the ChannelAnnountment to our graph, but don't send
+		// the channel update yet.
+		err := f.addToRouterGraph(channel, shortChanID, true)
+		if err != nil {
+			return fmt.Errorf("failed adding to "+
+				"router graph: %v", err)
+		}
+
+		// As the channel is now added to the ChannelRouter's topology,
+		// the channel is moved to the next state of the state machine.
+		err = f.saveChannelOpeningState(
+			&channel.FundingOutpoint, addedToLocalGraph,
+			shortChanID,
+		)
+		if err != nil {
+			return fmt.Errorf("error setting channel state to "+
+				"addedToLocalGraph: %v", err)
+		}
+
+		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+			"added to local router graph", chanID, shortChanID)
+
+	// The channel announcement was added to our local graph, but we did not
+	// successfully send FundingLocked to our peer yet.
+	case addedToLocalGraph:
 		err := f.sendFundingLocked(channel, lnChannel, shortChanID)
 		if err != nil {
 			return fmt.Errorf("failed sending fundingLocked: %v",
@@ -946,43 +989,48 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			shortChanID,
 		)
 		if err != nil {
-			return fmt.Errorf("error setting channel state to"+
-				" fundingLockedSent: %v", err)
+			return fmt.Errorf("error setting channel state to "+
+				"fundingLockedSent: %v", err)
 		}
 
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 			"sent FundingLocked", chanID, shortChanID)
 
-		return nil
-
-	// fundingLocked was sent to peer, but the channel was not added to the
-	// router graph and the channel announcement was not sent.
+	// fundingLocked was sent to our peer, we'll wait here until we have
+	// received fundingLocked from our peer.
 	case fundingLockedSent:
-		err := f.addToRouterGraph(channel, shortChanID)
-		if err != nil {
-			return fmt.Errorf("failed adding to "+
-				"router graph: %v", err)
+		// Wait for funding locked from peer.
+		f.receivedFundingLockedMtx.Lock()
+		recv, ok := f.receivedFundingLockedSignals[chanID]
+		if !ok {
+			// If the channel hasn't been added to the map yet,
+			// we'll create it and wait for the fundingLocked
+			// handler to signal.
+			recv = make(chan struct{})
+			f.receivedFundingLockedSignals[chanID] = recv
+		}
+		f.receivedFundingLockedMtx.Unlock()
+
+		select {
+		case <-recv:
+		case <-f.quit:
+			return ErrFundingManagerShuttingDown
 		}
 
-		// As the channel is now added to the ChannelRouter's topology,
-		// the channel is moved to the next state of the state machine.
-		// It will be moved to the last state (actually deleted from
-		// the database) after the channel is finally announced.
-		err = f.saveChannelOpeningState(
-			&channel.FundingOutpoint, addedToRouterGraph,
+		err := f.saveChannelOpeningState(
+			&channel.FundingOutpoint, fundingLockedReceived,
 			shortChanID,
 		)
 		if err != nil {
-			return fmt.Errorf("error setting channel state to"+
-				" addedToRouterGraph: %v", err)
+			return fmt.Errorf("error setting channel state to "+
+				"fundingLockedReceived: %v", err)
 		}
 
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
-			"added to router graph", chanID, shortChanID)
+			"received FundingLocked", chanID, shortChanID)
 
 		// Give the caller a final update notifying them that
 		// the channel is now open.
-		// TODO(roasbeef): only notify after recv of funding locked?
 		fundingPoint := channel.FundingOutpoint
 		cp := &lnrpc.ChannelPoint{
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
@@ -1008,15 +1056,43 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			}
 		}
 
-		return nil
+	// fundingLocked was received, we'll send our channel policy to the peer.
+	case fundingLockedReceived:
+		// We'll again call addToRouterGrap, this time indicating that
+		// we also want to send our ChannelUpdate. We keep adding the
+		// ChannelAnnouncment to the local router graph in this method
+		// for backwards compatibility: if a node had a channel in this
+		// state before updating, the channel announement was not yet
+		// added to the local graph.
+		err := f.addToRouterGraph(channel, shortChanID, false)
+		if err != nil {
+			return fmt.Errorf("failed adding to "+
+				"router graph: %v", err)
+		}
 
-	// The channel was added to the Router's topology, but the channel
-	// announcement was not sent.
-	case addedToRouterGraph:
+		// As the channel is now added to the ChannelRouter's topology,
+		// and the peer has been given our ChannelUpdate. The channel
+		// is moved to the next state of the state machine. It will be
+		// moved to the last state (actually deleted from the database)
+		// after the channel is finally announced.
+		err = f.saveChannelOpeningState(
+			&channel.FundingOutpoint, chanUpdateSent,
+			shortChanID,
+		)
+		if err != nil {
+			return fmt.Errorf("error setting channel state to "+
+				"chanUpdateSent: %v", err)
+		}
+
+		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+			"sent ChannelUpdate to peer", chanID, shortChanID)
+
+	// Our channel policy was privately given to our channel peer, but the
+	// channel was not yet publicly annnounced.
+	case chanUpdateSent:
 		err := f.annAfterSixConfs(channel, shortChanID)
 		if err != nil {
-			return fmt.Errorf("error sending channel "+
-				"announcement: %v", err)
+			return fmt.Errorf("error announcing channel: %v", err)
 		}
 
 		// We delete the channel opening state from our internal
@@ -1033,10 +1109,11 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 			"announced", chanID, shortChanID)
 
-		return nil
+	default:
+		return fmt.Errorf("undefined channelState: %v", channelState)
 	}
 
-	return fmt.Errorf("undefined channelState: %v", channelState)
+	return nil
 }
 
 // advancePendingChannelState waits for a pending channel's funding tx to
@@ -2488,8 +2565,13 @@ func (f *Manager) sendFundingLocked(
 // These announcement messages are NOT broadcasted to the greater network,
 // only to the channel counter party. The proofs required to announce the
 // channel to the greater network will be created and sent in annAfterSixConfs.
+//
+// The param annOnly should be set to true if we onlu want to add our
+// ChannelAnnouncement to our graph without sending the ChannelUpdate to our
+// peer. For backwards compatibility we'll re-add our ChannelAnnouncement to
+// the graph when sending our ChannelUpdate.
 func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
-	shortChanID *lnwire.ShortChannelID) error {
+	shortChanID *lnwire.ShortChannelID, annOnly bool) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
@@ -2545,6 +2627,11 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		}
 	case <-f.quit:
 		return ErrFundingManagerShuttingDown
+	}
+
+	// If we only wanted to add the announcement, we can exit early.
+	if annOnly {
+		return nil
 	}
 
 	errChan = f.cfg.SendAnnouncement(ann.chanUpdateAnn)
@@ -2748,6 +2835,28 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 		f.localDiscoveryMtx.Lock()
 		delete(f.localDiscoverySignals, msg.ChanID)
 		f.localDiscoveryMtx.Unlock()
+	}
+
+	// We'll now signal to the state machine that FundingLocked was
+	// received. This means that our peer is ready to accept our
+	// ChannelUpdate for the channel
+	f.receivedFundingLockedMtx.Lock()
+	recv, ok := f.receivedFundingLockedSignals[msg.ChanID]
+	if !ok {
+		// If the channel wasn't yet created, we'll create it here, and
+		// immediately close it.
+		recv = make(chan struct{})
+		f.receivedFundingLockedSignals[msg.ChanID] = recv
+	}
+	f.receivedFundingLockedMtx.Unlock()
+
+	// We'll close the channel, signalling that FundingLocked was received.
+	// Before we close it, we'll quickly check whether it was already
+	// closed, just in case the fuFundingClose was re-transmitted.
+	select {
+	case <-recv:
+	default:
+		close(recv)
 	}
 
 	// First, we'll attempt to locate the channel whose funding workflow is

@@ -1474,12 +1474,18 @@ func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
 	descReq := &lnrpc.ChannelGraphRequest{
 		IncludeUnannounced: true,
 	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	chanGraph, err := node.DescribeGraph(ctxt, descReq)
-	require.NoError(t.t, err, "unable to query for alice's graph")
+	var p []*lnrpc.RoutingPolicy
+	err := wait.NoError(func() error {
 
-	var policies []*lnrpc.RoutingPolicy
-	err = wait.NoError(func() error {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+		chanGraph, err := node.DescribeGraph(ctxt, descReq)
+		if err != nil {
+			return fmt.Errorf("unable to query for alice's "+
+				"graph: %v", err)
+		}
+
+		// Reset policies between each attempt.
+		p = nil
 	out:
 		for _, chanPoint := range chanPoints {
 			for _, e := range chanGraph.Edges {
@@ -1487,15 +1493,27 @@ func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
 					continue
 				}
 
+				// Only add policies if they are non-nil.
 				if e.Node1Pub == advertisingNode {
-					policies = append(policies,
-						e.Node1Policy)
-				} else {
-					policies = append(policies,
-						e.Node2Policy)
-				}
+					if e.Node1Policy == nil {
+						return fmt.Errorf("Node1 "+
+							"%v had nil policy",
+							e.Node1Pub)
+					}
 
-				continue out
+					p = append(p, e.Node1Policy)
+					continue out
+
+				} else {
+					if e.Node2Policy == nil {
+						return fmt.Errorf("Node2 "+
+							"%v had nil policy",
+							e.Node2Pub)
+					}
+
+					p = append(p, e.Node2Policy)
+					continue out
+				}
 			}
 
 			// If we've iterated over all the known edges and we weren't
@@ -1507,7 +1525,7 @@ func getChannelPolicies(t *harnessTest, node *lntest.HarnessNode,
 	}, defaultTimeout)
 	require.NoError(t.t, err)
 
-	return policies
+	return p
 }
 
 // assertChannelPolicy asserts that the passed node's known channel policy for
