@@ -1014,10 +1014,13 @@ func unminedTransactionsToDetail(
 // height (inclusive) and unconfirmed transactions. The account parameter serves
 // as a filter to retrieve the transactions relevant to a specific account. When
 // empty, transactions of all wallet accounts are returned.
+// The cancel channel provided is able to cancel this operation. If this channel
+// unblocks, the results created thus far will be returned.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
-	accountFilter string) ([]*lnwallet.TransactionDetail, error) {
+func (b *BtcWallet) ListTransactionDetails(cancel <-chan struct{},
+	startHeight, endHeight int32, accountFilter string) (
+	[]*lnwallet.TransactionDetail, error) {
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
@@ -1027,7 +1030,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 	// We'll attempt to find all transactions from start to end height.
 	start := base.NewBlockIdentifierFromHeight(startHeight)
 	stop := base.NewBlockIdentifierFromHeight(endHeight)
-	txns, err := b.wallet.GetTransactions(start, stop, accountFilter, nil)
+	txns, err := b.wallet.GetTransactions(start, stop, accountFilter, cancel)
 	if err != nil {
 		return nil, err
 	}
@@ -1197,6 +1200,13 @@ func (t *txSubscriptionClient) Cancel() {
 	t.wg.Wait()
 
 	t.txClient.Done()
+}
+
+// Done returns a channel that is closed when the subscription is closed.
+//
+// This is part of the TransactionSubscription interface.
+func (t *txSubscriptionClient) Done() <-chan struct{} {
+	return t.quit
 }
 
 // notificationProxier proxies the notifications received by the underlying

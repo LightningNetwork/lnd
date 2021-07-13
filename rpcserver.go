@@ -5019,20 +5019,68 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 
 // SubscribeTransactions creates a uni-directional stream (server -> client) in
 // which any newly discovered transactions relevant to the wallet are sent
-// over.
+// over. If the request GetTransactionsRequest has startHeight or endHeight set
+// it will retrieve those relevant transactions from the wallet and replay them
+// as notifications. Additionally Account can be set to filter for a specific
+// account.
 func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	updateStream lnrpc.Lightning_SubscribeTransactionsServer) error {
 
-	txClient, err := r.server.cc.Wallet.SubscribeTransactions()
+	w := r.server.cc.Wallet
+
+	txClient, err := w.SubscribeTransactions()
 	if err != nil {
 		return err
 	}
 	defer txClient.Cancel()
 	rpcsLog.Infof("New transaction subscription")
 
+	// replayResult contains a slice of replay transactions and the error
+	// returned when loading transactions from the internal wallet.
+	type replayResult struct {
+		txs []*lnwallet.TransactionDetail
+		err error
+	}
+
+	// Load transactions from the internal wallet in a go routine and send
+	// them to the repC channel closure.
+	repC := func() <-chan replayResult {
+		// Make the channel buffered to unblock any attempt to send the
+		// result to the channel.
+		repC := make(chan replayResult, 1)
+		go func() {
+			defer func() {
+				close(repC)
+			}()
+			// Load transactions to replay from the internal wallet
+			// but cancel it if the TransactionSubscription is
+			// closed ahead of it.
+			txs, err := w.ListTransactionDetails(
+				txClient.Done(), req.StartHeight, req.EndHeight,
+				req.Account,
+			)
+			repC <- replayResult{txs, err}
+		}()
+		return repC
+	}()
+
+	// replayMode indicates that notifications should be queued until
+	// replaying transactions is done.
+	replayMode := true
+
+	// queue stores notifications while loading transactions to replay.
+	queue := make([]*lnwallet.TransactionDetail, 0)
+
 	for {
 		select {
 		case tx := <-txClient.ConfirmedTransactions():
+			// Queue notifications while in replay mode to be able
+			// to filter them out from the replays later.
+			if replayMode {
+				queue = append(queue, tx)
+				break
+			}
+
 			destAddresses := make([]string, 0, len(tx.DestAddresses))
 			for _, destAddress := range tx.DestAddresses {
 				destAddresses = append(destAddresses, destAddress.EncodeAddress())
@@ -5053,6 +5101,13 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			}
 
 		case tx := <-txClient.UnconfirmedTransactions():
+			// Queue notifications while in replay mode to be able
+			// to filter them out from the replays later.
+			if replayMode {
+				queue = append(queue, tx)
+				break
+			}
+
 			var destAddresses []string
 			for _, destAddress := range tx.DestAddresses {
 				destAddresses = append(destAddresses, destAddress.EncodeAddress())
@@ -5068,6 +5123,100 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			if err := updateStream.Send(detail); err != nil {
 				return err
 			}
+
+		// This will run when replay transactions are received on the
+		// repC channel.
+		// This also filters out those queued notifications that my be
+		// duplicates of replay transactions.
+		// Finally it will notify of replay and queued notifications.
+		case rep, ok := <-repC:
+			if !ok {
+				// Disable replay mode when no more results will
+				// be sent on replayChan.
+				replayMode = false
+
+				// Disable the replay case.
+				repC = nil
+			}
+
+			// If an error was encountered while loading replay
+			// transactions from the database we immediately close
+			// the connection with an error while no notifications
+			// have been sent yet.
+			if err = rep.err; err != nil {
+				return fmt.Errorf(
+					"[subscribetransactions] cannot load "+
+						"replay transactions: %v", err,
+				)
+			}
+
+			// Merge replay transactions with queued notifications.
+			notifications := make([]*lnwallet.TransactionDetail,
+				len(rep.txs)+len(queue))
+
+			for i := 0; i < len(rep.txs)+len(queue); i++ {
+				if i < len(rep.txs) {
+					notifications[i] = rep.txs[i]
+					continue
+				}
+				notifications[i] = queue[i-len(rep.txs)]
+			}
+
+			// Clear the queue for GC.
+			queue = nil
+
+			// Notify only of queued transactions that were not
+			// also picked up by loading replay transactions.
+			//
+			// A notification is assumed to be uniquely identifiable
+			// from a transaction by its id and the block hash it is
+			// confirmed in.
+			//
+			// The key structure is used as key element to identify
+			// duplicates.
+			type key struct {
+				hash  string
+				block string
+			}
+			seen := make(map[key]bool, len(notifications))
+
+			// Inside its own goroutine replay transactions as
+			// notifications to the TransactionSubscription client.
+			go func() {
+				for _, d := range notifications {
+					// Add transaction id to key.
+					k := key{hash: d.Hash.String()}
+
+					// Add block hash to key for confirmed
+					// transactions.
+					if d.BlockHash != nil {
+						k.block = d.BlockHash.String()
+					}
+
+					// Prevent duplicate notifications from
+					// being replayed.
+					if seen[k] {
+						continue
+					}
+
+					// Mark notification as seen.
+					seen[k] = true
+
+					if d.NumConfirmations > 0 {
+						select {
+						case txClient.ConfirmedTransactions() <- d:
+						case <-txClient.Done():
+							return
+						}
+					} else {
+						select {
+						case txClient.UnconfirmedTransactions() <- d:
+						case <-txClient.Done():
+							return
+						}
+					}
+				}
+			}()
 
 		case <-updateStream.Context().Done():
 			rpcsLog.Infof("Cancelling transaction subscription")
@@ -5095,7 +5244,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	}
 
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, req.Account,
+		nil, req.StartHeight, endHeight, req.Account,
 	)
 	if err != nil {
 		return nil, err
