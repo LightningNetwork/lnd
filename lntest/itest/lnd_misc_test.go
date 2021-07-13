@@ -610,7 +610,7 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 }
 
-// testGarbageCollectLinkNodes tests that we properly garbase collect link nodes
+// testGarbageCollectLinkNodes tests that we properly garbage collect link nodes
 // from the database and the set of persistent connections within the server.
 func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
@@ -623,8 +623,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// cooperatively closed.
 	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
 	coopChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
+		ctxt, t, net, net.Alice, net.Bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -639,8 +638,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	// closed.
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	forceCloseChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, carol,
-		lntest.OpenChannelParams{
+		ctxt, t, net, net.Alice, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -654,8 +652,7 @@ func testGarbageCollectLinkNodes(net *lntest.NetworkHarness, t *harnessTest) {
 	net.ConnectNodes(ctxt, t.t, net.Alice, dave)
 	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
 	persistentChanPoint := openChannelAndAssert(
-		ctxt, t, net, net.Alice, dave,
-		lntest.OpenChannelParams{
+		ctxt, t, net, net.Alice, dave, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -1620,30 +1617,22 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, t, net, net.Alice, net.Bob, channelParam,
 	)
 	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
+	require.NoError(t.t, err, "alice bob get channel funding txid")
 	chanPointStr := fmt.Sprintf("%v:%v", txid, chanPoint.OutputIndex)
 
 	// Wait for channel to be confirmed open.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	err = net.Alice.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't report channel: %v", err)
-	}
+	require.NoError(t.t, err, "alice wait for network channel open")
 	err = net.Bob.WaitForNetworkChannelOpen(ctxt, chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't report channel: %v", err)
-	}
+	require.NoError(t.t, err, "bob wait for network channel open")
 
 	// Now that the channel is open, we'll obtain its channel ID real quick
 	// so we can use it to query the graph below.
 	listReq := &lnrpc.ListChannelsRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	aliceChannelList, err := net.Alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to fetch alice's channels: %v", err)
-	}
+	require.NoError(t.t, err)
 	var chanID uint64
 	for _, channel := range aliceChannelList.Channels {
 		if channel.ChannelPoint == chanPointStr {
@@ -1651,18 +1640,13 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 		}
 	}
 
-	if chanID == 0 {
-		t.Fatalf("unable to find channel")
-	}
+	require.NotZero(t.t, chanID, "unable to find channel")
 
 	// To make sure the channel is removed from the backup file as well when
 	// being abandoned, grab a backup snapshot so we can compare it with the
 	// later state.
 	bkupBefore, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
-	if err != nil {
-		t.Fatalf("could not get channel backup before abandoning "+
-			"channel: %v", err)
-	}
+	require.NoError(t.t, err, "channel backup before abandoning channel")
 
 	// Send request to abandon channel.
 	abandonChannelRequest := &lnrpc.AbandonChannelRequest{
@@ -1671,44 +1655,31 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
-	if err != nil {
-		t.Fatalf("unable to abandon channel: %v", err)
-	}
+	require.NoError(t.t, err, "abandon channel")
 
 	// Assert that channel in no longer open.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	aliceChannelList, err = net.Alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to list channels: %v", err)
-	}
-	if len(aliceChannelList.Channels) != 0 {
-		t.Fatalf("alice should only have no channels open, "+
-			"instead she has %v",
-			len(aliceChannelList.Channels))
-	}
+	require.NoError(t.t, err, "list channels")
+	require.Zero(t.t, len(aliceChannelList.Channels), "alice open channels")
 
 	// Assert that channel is not pending closure.
 	pendingReq := &lnrpc.PendingChannelsRequest{}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	alicePendingList, err := net.Alice.PendingChannels(ctxt, pendingReq)
-	if err != nil {
-		t.Fatalf("unable to list pending channels: %v", err)
-	}
-	if len(alicePendingList.PendingClosingChannels) != 0 { //nolint:staticcheck
-		t.Fatalf("alice should only have no pending closing channels, "+
-			"instead she has %v",
-			len(alicePendingList.PendingClosingChannels)) //nolint:staticcheck
-	}
-	if len(alicePendingList.PendingForceClosingChannels) != 0 {
-		t.Fatalf("alice should only have no pending force closing "+
-			"channels instead she has %v",
-			len(alicePendingList.PendingForceClosingChannels))
-	}
-	if len(alicePendingList.WaitingCloseChannels) != 0 {
-		t.Fatalf("alice should only have no waiting close "+
-			"channels instead she has %v",
-			len(alicePendingList.WaitingCloseChannels))
-	}
+	require.NoError(t.t, err, "alice list pending channels")
+	require.Zero(
+		t.t, len(alicePendingList.PendingClosingChannels), //nolint:staticcheck
+		"alice pending channels",
+	)
+	require.Zero(
+		t.t, len(alicePendingList.PendingForceClosingChannels),
+		"alice pending force close channels",
+	)
+	require.Zero(
+		t.t, len(alicePendingList.WaitingCloseChannels),
+		"alice waiting close channels",
+	)
 
 	// Assert that channel is listed as abandoned.
 	closedReq := &lnrpc.ClosedChannelsRequest{
@@ -1716,45 +1687,49 @@ func testAbandonChannel(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	aliceClosedList, err := net.Alice.ClosedChannels(ctxt, closedReq)
-	if err != nil {
-		t.Fatalf("unable to list closed channels: %v", err)
-	}
-	if len(aliceClosedList.Channels) != 1 {
-		t.Fatalf("alice should only have a single abandoned channel, "+
-			"instead she has %v",
-			len(aliceClosedList.Channels))
-	}
+	require.NoError(t.t, err, "alice list closed channels")
+	require.Len(t.t, aliceClosedList.Channels, 1, "alice closed channels")
 
 	// Ensure that the channel can no longer be found in the channel graph.
-	_, err = net.Alice.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
-		ChanId: chanID,
-	})
-	if !strings.Contains(err.Error(), "marked as zombie") {
-		t.Fatalf("channel shouldn't be found in the channel " +
-			"graph!")
-	}
-
-	// Make sure the channel is no longer in the channel backup list.
-	err = wait.Predicate(func() bool {
-		bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
-		if err != nil {
-			t.Fatalf("could not get channel backup before "+
-				"abandoning channel: %v", err)
+	err = wait.NoError(func() error {
+		_, err := net.Alice.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
+			ChanId: chanID,
+		})
+		if err == nil {
+			return fmt.Errorf("expected error but got nil")
 		}
 
-		return len(bkupAfter) < len(bkupBefore)
+		if !strings.Contains(err.Error(), "marked as zombie") {
+			return fmt.Errorf("expected error to contain '%s' but "+
+				"was '%v'", "marked as zombie", err)
+		}
+
+		return nil
 	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf("channel wasn't removed from channel backup file")
-	}
+	require.NoError(t.t, err, "marked as zombie")
+
+	// Make sure the channel is no longer in the channel backup list.
+	err = wait.NoError(func() error {
+		bkupAfter, err := ioutil.ReadFile(net.Alice.ChanBackupPath())
+		if err != nil {
+			return fmt.Errorf("could not get channel backup "+
+				"before abandoning channel: %v", err)
+		}
+
+		if len(bkupAfter) >= len(bkupBefore) {
+			return fmt.Errorf("expected backups after to be less "+
+				"than %d but was %d", bkupBefore, bkupAfter)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t.t, err, "channel removed from backup file")
 
 	// Calling AbandonChannel again, should result in no new errors, as the
 	// channel has already been removed.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	_, err = net.Alice.AbandonChannel(ctxt, abandonChannelRequest)
-	if err != nil {
-		t.Fatalf("unable to abandon channel a second time: %v", err)
-	}
+	require.NoError(t.t, err, "abandon channel second time")
 
 	// Now that we're done with the test, the channel can be closed. This
 	// is necessary to avoid unexpected outcomes of other tests that use
