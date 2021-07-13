@@ -19,10 +19,6 @@ with lnd in Java. We'll be using Maven as our build tool.
        ├── java
        │   └── Main.java
        ├── proto
-          ├── google
-          │   └── api
-          │       ├── annotations.proto
-          │       └── http.proto
           └── lnrpc
               └── rpc.proto
 
@@ -30,13 +26,11 @@ with lnd in Java. We'll be using Maven as our build tool.
 Note the ***proto*** folder, where all the proto files are kept.
 
  - [rpc.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/rpc.proto)
- - [annotations.proto](https://github.com/grpc-ecosystem/grpc-gateway/blob/master/third_party/googleapis/google/api/annotations.proto)
- - [http.proto](https://github.com/grpc-ecosystem/grpc-gateway/blob/master/third_party/googleapis/google/api/http.proto)
 
 #### pom.xml
 ```xml
 <properties>
-    <grpc.version>1.8.0</grpc.version>
+    <grpc.version>1.36.0</grpc.version>
 </properties>    
 ```
 The following dependencies are required.
@@ -60,7 +54,7 @@ The following dependencies are required.
     <dependency>
         <groupId>io.netty</groupId>
         <artifactId>netty-tcnative-boringssl-static</artifactId>
-        <version>2.0.7.Final</version>
+        <version>2.0.28.Final</version>
     </dependency>
     <dependency>
         <groupId>commons-codec</groupId>
@@ -76,16 +70,16 @@ In the build section,  we'll need to configure the following things :
         <extension>
             <groupId>kr.motd.maven</groupId>
             <artifactId>os-maven-plugin</artifactId>
-            <version>1.5.0.Final</version>
+            <version>1.6.2.Final</version>
         </extension>
     </extensions>
     <plugins>
         <plugin>
             <groupId>org.xolstice.maven.plugins</groupId>
             <artifactId>protobuf-maven-plugin</artifactId>
-            <version>0.5.0</version>
+            <version>0.6.1</version>
             <configuration>
-                <protocArtifact>com.google.protobuf:protoc:3.4.0:exe:${os.detected.classifier}</protocArtifact>
+                <protocArtifact>com.google.protobuf:protoc:3.12.0:exe:${os.detected.classifier}</protocArtifact>
                 <pluginId>grpc-java</pluginId>
                 <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
             </configuration>
@@ -125,36 +119,30 @@ import java.nio.file.Paths;
 import java.util.concurrent.Executor;
 
 public class Main {
-  static class MacaroonCallCredential implements CallCredentials {
-    private final String macaroon;
+  static class MacaroonCallCredential extends CallCredentials {
+      private final String macaroon;
 
-    MacaroonCallCredential(String macaroon) {
-      this.macaroon = macaroon;
-    }
+      MacaroonCallCredential(String macaroon) {
+          this.macaroon = macaroon;
+      }
 
-    public void thisUsesUnstableApi() {}
+      @Override
+      public void applyRequestMetadata(RequestInfo requestInfo, Executor executor, MetadataApplier metadataApplier) {
+          executor.execute(() -> {
+              try {
+                  Metadata headers = new Metadata();
+                  Metadata.Key<String> macaroonKey = Metadata.Key.of("macaroon", Metadata.ASCII_STRING_MARSHALLER);
+                  headers.put(macaroonKey, macaroon);
+                  metadataApplier.apply(headers);
+              } catch (Throwable e) {
+                  metadataApplier.fail(Status.UNAUTHENTICATED.withCause(e));
+              }
+          });
+      }
 
-    public void applyRequestMetadata(
-        MethodDescriptor < ? , ? > methodDescriptor,
-        Attributes attributes,
-        Executor executor,
-        final MetadataApplier metadataApplier
-    ) {
-      String authority = attributes.get(ATTR_AUTHORITY);
-      System.out.println(authority);
-      executor.execute(new Runnable() {
-        public void run() {
-          try {
-            Metadata headers = new Metadata();
-            Metadata.Key < String > macaroonKey = Metadata.Key.of("macaroon", Metadata.ASCII_STRING_MARSHALLER);
-            headers.put(macaroonKey, macaroon);
-            metadataApplier.apply(headers);
-          } catch (Throwable e) {
-            metadataApplier.fail(Status.UNAUTHENTICATED.withCause(e));
-          }
-        }
-      });
-    }
+      @Override
+      public void thisUsesUnstableApi() {
+      }
   }
 
   private static final String CERT_PATH = "/Users/user/Library/Application Support/Lnd/tls.cert";
@@ -195,19 +183,19 @@ Execute the following command in the directory where the **pom.xml** file is loc
 [INFO] ------------------------------------------------------------------------
 [INFO] os.detected.name: osx
 [INFO] os.detected.arch: x86_64
-[INFO] os.detected.version: 10.13
+[INFO] os.detected.version: 10.15
 [INFO] os.detected.version.major: 10
-[INFO] os.detected.version.minor: 13
+[INFO] os.detected.version.minor: 15
 [INFO] os.detected.classifier: osx-x86_64
 [INFO]
 [INFO] ------------------------------------------------------------------------
 [INFO] Building lightning-client 0.0.1-SNAPSHOT
 [INFO] ------------------------------------------------------------------------
 [INFO]
-[INFO] --- protobuf-maven-plugin:0.5.0:compile (default) @ lightning-client ---
+[INFO] --- protobuf-maven-plugin:0.6.1:compile (default) @ lightning-client ---
 [INFO] Compiling 3 proto file(s) to /Users/user/Documents/Projects/lightningclient/target/generated-sources/protobuf/java
 [INFO]
-[INFO] --- protobuf-maven-plugin:0.5.0:compile-custom (default) @ lightning-client ---
+[INFO] --- protobuf-maven-plugin:0.6.1:compile-custom (default) @ lightning-client ---
 [INFO] Compiling 3 proto file(s) to /Users/user/Documents/Projects/lightningclient/target/generated-sources/protobuf/grpc-java
 [INFO]
 [INFO] --- maven-resources-plugin:2.6:resources (default-resources) @ lightning-client ---
