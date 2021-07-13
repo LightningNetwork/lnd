@@ -771,6 +771,7 @@ func checkAckedUpdates(t *testing.T, session *wtdb.ClientSession,
 // and the mock implementation. This ensures that all databases function
 // identically, especially in the negative paths.
 func TestClientDB(t *testing.T) {
+	dbCfg := &kvdb.BoltConfig{DBTimeout: kvdb.DefaultDBTimeout}
 	dbs := []struct {
 		name string
 		init clientDBInit
@@ -784,9 +785,15 @@ func TestClientDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenClientDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				bdb, err := wtdb.NewBoltBackendCreator(
+					true, path, "wtclient.db",
+				)(dbCfg)
+				if err != nil {
+					os.RemoveAll(path)
+					t.Fatalf("unable to open db: %v", err)
+				}
+
+				db, err := wtdb.OpenClientDB(bdb)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
@@ -809,18 +816,30 @@ func TestClientDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenClientDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				bdb, err := wtdb.NewBoltBackendCreator(
+					true, path, "wtclient.db",
+				)(dbCfg)
+				if err != nil {
+					os.RemoveAll(path)
+					t.Fatalf("unable to open db: %v", err)
+				}
+
+				db, err := wtdb.OpenClientDB(bdb)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
 				}
 				db.Close()
 
-				db, err = wtdb.OpenClientDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				bdb, err = wtdb.NewBoltBackendCreator(
+					true, path, "wtclient.db",
+				)(dbCfg)
+				if err != nil {
+					os.RemoveAll(path)
+					t.Fatalf("unable to open db: %v", err)
+				}
+
+				db, err = wtdb.OpenClientDB(bdb)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to reopen db: %v", err)

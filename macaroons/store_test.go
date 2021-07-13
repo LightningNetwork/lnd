@@ -54,6 +54,7 @@ func openTestStore(t *testing.T, tempDir string) (func(),
 
 	cleanup := func() {
 		_ = store.Close()
+		_ = db.Close()
 	}
 
 	return cleanup, store
@@ -108,6 +109,7 @@ func TestStore(t *testing.T) {
 	require.Equal(t, macaroons.ErrAlreadyUnlocked, err)
 
 	_ = store.Close()
+	_ = store.Backend.Close()
 
 	// Between here and the re-opening of the store, it's possible to get
 	// a double-close, but that's not such a big deal since the tests will
@@ -205,6 +207,8 @@ func TestStoreChangePassword(t *testing.T) {
 	// create a new store instance. Let's make sure we can't use it again
 	// after closing.
 	err = store.Close()
+	require.NoError(t, err)
+	err = store.Backend.Close()
 	require.NoError(t, err)
 
 	err = store.CreateUnlock(&newPw)

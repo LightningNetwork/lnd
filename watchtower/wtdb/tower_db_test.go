@@ -630,6 +630,7 @@ var stateUpdateInvalidBlobSize = stateUpdateTest{
 }
 
 func TestTowerDB(t *testing.T) {
+	dbCfg := &kvdb.BoltConfig{DBTimeout: kvdb.DefaultDBTimeout}
 	dbs := []struct {
 		name string
 		init dbInit
@@ -643,9 +644,15 @@ func TestTowerDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenTowerDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				bdb, err := wtdb.NewBoltBackendCreator(
+					true, path, "watchtower.db",
+				)(dbCfg)
+				if err != nil {
+					os.RemoveAll(path)
+					t.Fatalf("unable to open db: %v", err)
+				}
+
+				db, err := wtdb.OpenTowerDB(bdb)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
@@ -668,9 +675,15 @@ func TestTowerDB(t *testing.T) {
 						err)
 				}
 
-				db, err := wtdb.OpenTowerDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				bdb, err := wtdb.NewBoltBackendCreator(
+					true, path, "watchtower.db",
+				)(dbCfg)
+				if err != nil {
+					os.RemoveAll(path)
+					t.Fatalf("unable to open db: %v", err)
+				}
+
+				db, err := wtdb.OpenTowerDB(bdb)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)
@@ -680,9 +693,15 @@ func TestTowerDB(t *testing.T) {
 				// Open the db again, ensuring we test a
 				// different path during open and that all
 				// buckets remain initialized.
-				db, err = wtdb.OpenTowerDB(
-					path, kvdb.DefaultDBTimeout,
-				)
+				bdb, err = wtdb.NewBoltBackendCreator(
+					true, path, "watchtower.db",
+				)(dbCfg)
+				if err != nil {
+					os.RemoveAll(path)
+					t.Fatalf("unable to open db: %v", err)
+				}
+
+				db, err = wtdb.OpenTowerDB(bdb)
 				if err != nil {
 					os.RemoveAll(path)
 					t.Fatalf("unable to open db: %v", err)

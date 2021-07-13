@@ -3,17 +3,11 @@ package wtdb
 import (
 	"bytes"
 	"errors"
-	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
-)
-
-const (
-	// towerDBName is the filename of tower database.
-	towerDBName = "watchtower.db"
 )
 
 var (
@@ -56,8 +50,7 @@ var (
 // TowerDB is single database providing a persistent storage engine for the
 // wtserver and lookout subsystems.
 type TowerDB struct {
-	db     kvdb.Backend
-	dbPath string
+	db kvdb.Backend
 }
 
 // OpenTowerDB opens the tower database given the path to the database's
@@ -67,22 +60,19 @@ type TowerDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
-func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(
-		dbPath, towerDBName, dbTimeout,
-	)
+func OpenTowerDB(db kvdb.Backend) (*TowerDB, error) {
+	firstInit, err := isFirstInit(db)
 	if err != nil {
 		return nil, err
 	}
 
 	towerDB := &TowerDB{
-		db:     bdb,
-		dbPath: dbPath,
+		db: db,
 	}
 
 	err = initOrSyncVersions(towerDB, firstInit, towerDBVersions)
 	if err != nil {
-		bdb.Close()
+		db.Close()
 		return nil, err
 	}
 
@@ -93,7 +83,7 @@ func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
 	// missing, this will trigger a ErrUninitializedDB error.
 	err = kvdb.Update(towerDB.db, initTowerDBBuckets, func() {})
 	if err != nil {
-		bdb.Close()
+		db.Close()
 		return nil, err
 	}
 

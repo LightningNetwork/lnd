@@ -203,8 +203,6 @@ var (
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 
 	defaultPrunedNodeMaxPeers = 4
-
-	defaultSphinxDbName = "sphinxreplay.db"
 )
 
 // Config defines the configuration options for lnd.
@@ -1228,6 +1226,12 @@ func ValidateConfig(cfg Config, usageMessage string,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
+	// We need to make sure the default network directory exists for when we
+	// try to create our default macaroons there.
+	if err := makeDirectory(cfg.networkDir); err != nil {
+		return nil, err
+	}
+
 	// If a custom macaroon directory wasn't specified and the data
 	// directory has changed from the default path, then we'll also update
 	// the path for the macaroons to be generated.
@@ -1489,12 +1493,13 @@ func ValidateConfig(cfg Config, usageMessage string,
 	return &cfg, err
 }
 
-// localDatabaseDir returns the default directory where the
-// local bolt db files are stored.
-func (c *Config) localDatabaseDir() string {
-	return filepath.Join(c.DataDir,
-		defaultGraphSubDirname,
-		lncfg.NormalizeNetwork(c.ActiveNetParams.Name))
+// graphDatabaseDir returns the default directory where the local bolt graph db
+// files are stored.
+func (c *Config) graphDatabaseDir() string {
+	return filepath.Join(
+		c.DataDir, defaultGraphSubDirname,
+		lncfg.NormalizeNetwork(c.ActiveNetParams.Name),
+	)
 }
 
 // CleanAndExpandPath expands environment variables and leading ~ in the

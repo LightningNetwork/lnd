@@ -6,17 +6,11 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
-)
-
-const (
-	// clientDBName is the filename of client database.
-	clientDBName = "wtclient.db"
 )
 
 var (
@@ -116,11 +110,43 @@ var (
 	ErrLastTowerAddr = errors.New("cannot remove last tower address")
 )
 
+// NewBoltBackendCreator returns a function that creates a new bbolt backend for
+// the watchtower database.
+func NewBoltBackendCreator(active bool, dbPath,
+	dbFileName string) func(boltCfg *kvdb.BoltConfig) (kvdb.Backend, error) {
+
+	// If the watchtower client isn't active, we return a function that
+	// always returns a nil DB to make sure we don't create empty database
+	// files.
+	if !active {
+		return func(_ *kvdb.BoltConfig) (kvdb.Backend, error) {
+			return nil, nil
+		}
+	}
+
+	return func(boltCfg *kvdb.BoltConfig) (kvdb.Backend, error) {
+		cfg := &kvdb.BoltBackendConfig{
+			DBPath:            dbPath,
+			DBFileName:        dbFileName,
+			NoFreelistSync:    !boltCfg.SyncFreelist,
+			AutoCompact:       boltCfg.AutoCompact,
+			AutoCompactMinAge: boltCfg.AutoCompactMinAge,
+			DBTimeout:         boltCfg.DBTimeout,
+		}
+
+		db, err := kvdb.GetBoltBackend(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("could not open boltdb: %v", err)
+		}
+
+		return db, nil
+	}
+}
+
 // ClientDB is single database providing a persistent storage engine for the
 // wtclient.
 type ClientDB struct {
-	db     kvdb.Backend
-	dbPath string
+	db kvdb.Backend
 }
 
 // OpenClientDB opens the client database given the path to the database's
@@ -130,22 +156,19 @@ type ClientDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
-func OpenClientDB(dbPath string, dbTimeout time.Duration) (*ClientDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(
-		dbPath, clientDBName, dbTimeout,
-	)
+func OpenClientDB(db kvdb.Backend) (*ClientDB, error) {
+	firstInit, err := isFirstInit(db)
 	if err != nil {
 		return nil, err
 	}
 
 	clientDB := &ClientDB{
-		db:     bdb,
-		dbPath: dbPath,
+		db: db,
 	}
 
 	err = initOrSyncVersions(clientDB, firstInit, clientDBVersions)
 	if err != nil {
-		bdb.Close()
+		db.Close()
 		return nil, err
 	}
 
@@ -156,7 +179,7 @@ func OpenClientDB(dbPath string, dbTimeout time.Duration) (*ClientDB, error) {
 	// missing, this will trigger a ErrUninitializedDB error.
 	err = kvdb.Update(clientDB.db, initClientDBBuckets, func() {})
 	if err != nil {
-		bdb.Close()
+		db.Close()
 		return nil, err
 	}
 

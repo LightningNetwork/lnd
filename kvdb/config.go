@@ -13,6 +13,8 @@ const (
 	// live instance of etcd.
 	EtcdBackendName = "etcd"
 
+	PostgresBackendName = "postgres"
+
 	// DefaultBoltAutoCompactMinAge is the default minimum time that must
 	// have passed since a bolt database file was last compacted for the
 	// compaction to be considered again.

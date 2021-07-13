@@ -24,6 +24,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.1-0.20190118093823-f849b5445de4
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway v1.14.3
+	github.com/jackc/pgx/v4 v4.11.0
 	github.com/jackpal/gateway v1.0.5
 	github.com/jackpal/go-nat-pmp v0.0.0-20170405195558-28a68d0c24ad
 	github.com/jedib0t/go-pretty v4.3.0+incompatible
@@ -48,15 +49,15 @@ require (
 	github.com/lightningnetwork/lnd/ticker v1.0.0
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/mattn/go-runewidth v0.0.9 // indirect
-	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
-	github.com/prometheus/client_golang v1.0.0
+	github.com/miekg/dns v1.0.14
+	github.com/prometheus/client_golang v1.3.0
 	github.com/stretchr/testify v1.7.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
-	github.com/urfave/cli v1.20.0
+	github.com/urfave/cli v1.22.1
 	go.etcd.io/etcd v3.4.14+incompatible
-	golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
-	golang.org/x/net v0.0.0-20200520004742-59133d7f0dd7
-	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
+	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
+	golang.org/x/net v0.0.0-20210226172049-e18ecbb05110
+	golang.org/x/time v0.0.0-20191024005414-555d28b269f0
 	google.golang.org/grpc v1.29.1
 	google.golang.org/protobuf v1.23.0
 	gopkg.in/errgo.v1 v1.0.1 // indirect

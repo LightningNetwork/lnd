@@ -81,7 +81,8 @@ var (
 	)
 
 	// dbBackendFlag specifies the backend to use
-	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend (bbolt, etcd)")
+	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
+		"(bbolt, etcd, postgres)")
 )
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -6636,6 +6637,11 @@ func testRevokedCloseRetribution(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
 
+	// Reconnect the peers after the restart that was needed for the db
+	// backup.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, carol, net.Bob)
+
 	// Finally, send payments from Carol to Bob, consuming Bob's remaining
 	// payment hashes.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -6870,6 +6876,11 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(net *lntest.NetworkHarness
 	if err := net.BackupDb(carol); err != nil {
 		t.Fatalf("unable to copy database files: %v", err)
 	}
+
+	// Reconnect the peers after the restart that was needed for the db
+	// backup.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	net.ConnectNodes(ctxt, t.t, dave, carol)
 
 	// Finally, send payments from Dave to Carol, consuming Carol's remaining
 	// payment hashes.
@@ -8132,6 +8143,11 @@ func testDataLossProtection(net *lntest.NetworkHarness, t *harnessTest) {
 		if err := net.BackupDb(node); err != nil {
 			t.Fatalf("unable to copy database files: %v", err)
 		}
+
+		// Reconnect the peers after the restart that was needed for the db
+		// backup.
+		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+		net.ConnectNodes(ctxt, t.t, carol, node)
 
 		// Finally, send more payments from , using the remaining
 		// payment hashes.
@@ -11581,6 +11597,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	case "etcd":
 		dbBackend = lntest.BackendEtcd
+
+	case "postgres":
+		dbBackend = lntest.BackendPostgres
 
 	default:
 		require.Fail(t, "unknown db backend")

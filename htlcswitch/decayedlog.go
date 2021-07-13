@@ -41,6 +41,35 @@ var (
 	ErrDecayedLogCorrupted = errors.New("decayed log structure corrupted")
 )
 
+// NewBoltBackendCreator returns a function that creates a new bbolt backend for
+// the decayed logs database.
+func NewBoltBackendCreator(dbPath,
+	dbFileName string) func(boltCfg *kvdb.BoltConfig) (kvdb.Backend, error) {
+
+	return func(boltCfg *kvdb.BoltConfig) (kvdb.Backend, error) {
+		cfg := &kvdb.BoltBackendConfig{
+			DBPath:            dbPath,
+			DBFileName:        dbFileName,
+			NoFreelistSync:    !boltCfg.SyncFreelist,
+			AutoCompact:       boltCfg.AutoCompact,
+			AutoCompactMinAge: boltCfg.AutoCompactMinAge,
+			DBTimeout:         boltCfg.DBTimeout,
+		}
+
+		// Use default path for log database.
+		if dbPath == "" {
+			cfg.DBPath = defaultDbDirectory
+		}
+
+		db, err := kvdb.GetBoltBackend(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("could not open boltdb: %v", err)
+		}
+
+		return db, nil
+	}
+}
+
 // DecayedLog implements the PersistLog interface. It stores the first
 // HashPrefixSize bytes of a sha256-hashed shared secret along with a node's
 // CLTV value. It is a decaying log meaning there will be a garbage collector
@@ -50,8 +79,6 @@ var (
 type DecayedLog struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
-
-	cfg *kvdb.BoltBackendConfig
 
 	db kvdb.Backend
 
@@ -64,25 +91,11 @@ type DecayedLog struct {
 // NewDecayedLog creates a new DecayedLog, which caches recently seen hash
 // shared secrets. Entries are evicted as their cltv expires using block epochs
 // from the given notifier.
-func NewDecayedLog(dbPath, dbFileName string, boltCfg *kvdb.BoltConfig,
+func NewDecayedLog(db kvdb.Backend,
 	notifier chainntnfs.ChainNotifier) *DecayedLog {
 
-	cfg := &kvdb.BoltBackendConfig{
-		DBPath:            dbPath,
-		DBFileName:        dbFileName,
-		NoFreelistSync:    true,
-		AutoCompact:       boltCfg.AutoCompact,
-		AutoCompactMinAge: boltCfg.AutoCompactMinAge,
-		DBTimeout:         boltCfg.DBTimeout,
-	}
-
-	// Use default path for log database
-	if dbPath == "" {
-		cfg.DBPath = defaultDbDirectory
-	}
-
 	return &DecayedLog{
-		cfg:      cfg,
+		db:       db,
 		notifier: notifier,
 		quit:     make(chan struct{}),
 	}
@@ -94,13 +107,6 @@ func NewDecayedLog(dbPath, dbFileName string, boltCfg *kvdb.BoltConfig,
 func (d *DecayedLog) Start() error {
 	if !atomic.CompareAndSwapInt32(&d.started, 0, 1) {
 		return nil
-	}
-
-	// Open the boltdb for use.
-	var err error
-	d.db, err = kvdb.GetBoltBackend(d.cfg)
-	if err != nil {
-		return fmt.Errorf("could not open boltdb: %v", err)
 	}
 
 	// Initialize the primary buckets used by the decayed log.

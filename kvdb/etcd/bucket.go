@@ -90,3 +90,42 @@ func getKeyVal(kv *KV) ([]byte, []byte) {
 
 	return getKey(kv.key), val
 }
+
+// BucketKey is a helper functon used in tests to create a bucket key from
+// passed bucket list.
+func BucketKey(buckets ...string) string {
+	var bucketKey []byte
+
+	rootID := makeBucketID([]byte(etcdDefaultRootBucketId))
+	parent := rootID[:]
+
+	for _, bucketName := range buckets {
+		bucketKey = makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(bucketKey)
+}
+
+// BucketVal is a helper function used in tests to create a bucket value (the
+// value for a bucket key) from the passed bucket list.
+func BucketVal(buckets ...string) string {
+	id := makeBucketID([]byte(BucketKey(buckets...)))
+	return string(id[:])
+}
+
+// ValueKey is a helper function used in tests to create a value key from the
+// passed key and bucket list.
+func ValueKey(key string, buckets ...string) string {
+	rootID := makeBucketID([]byte(etcdDefaultRootBucketId))
+	bucket := rootID[:]
+
+	for _, bucketName := range buckets {
+		bucketKey := makeBucketKey(bucket, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		bucket = id[:]
+	}
+
+	return string(makeValueKey(bucket, []byte(key)))
+}

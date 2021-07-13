@@ -96,11 +96,6 @@ func (c *readWriteCursor) Prev() (key, value []byte) {
 // not exist, the cursor is moved to the next key after seek.  Returns
 // the new pair.
 func (c *readWriteCursor) Seek(seek []byte) (key, value []byte) {
-	// Return nil if trying to seek to an empty key.
-	if seek == nil {
-		return nil, nil
-	}
-
 	// Seek to the first key with prefix + seek. If that key is not present
 	// STM will seek to the next matching key with prefix.
 	kv, err := c.bucket.tx.stm.Seek(c.prefix, c.prefix+string(seek))

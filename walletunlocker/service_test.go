@@ -113,7 +113,7 @@ func openOrCreateTestMacStore(tempDir string, pw *[]byte,
 		return nil, err
 	}
 	db, err := kvdb.Create(
-		kvdb.BoltBackendName, path.Join(netDir, macaroons.DBFilename),
+		kvdb.BoltBackendName, path.Join(netDir, "macaroons.db"),
 		true, kvdb.DefaultDBTimeout,
 	)
 	if err != nil {
@@ -154,8 +154,7 @@ func TestGenSeed(t *testing.T) {
 	}()
 
 	service := walletunlocker.New(
-		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false, testLoaderOpts(testDir),
+		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
 
 	// Now that the service has been created, we'll ask it to generate a
@@ -192,8 +191,7 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 		_ = os.RemoveAll(testDir)
 	}()
 	service := walletunlocker.New(
-		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false, testLoaderOpts(testDir),
+		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
 
 	// Now that the service has been created, we'll ask it to generate a
@@ -229,8 +227,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 		_ = os.RemoveAll(testDir)
 	}()
 	service := walletunlocker.New(
-		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false, testLoaderOpts(testDir),
+		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
 
 	// Now that the service has been created, we'll ask it to generate a
@@ -263,8 +260,7 @@ func TestInitWallet(t *testing.T) {
 
 	// Create new UnlockerService.
 	service := walletunlocker.New(
-		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false, testLoaderOpts(testDir),
+		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
 
 	// Once we have the unlocker service created, we'll now instantiate a
@@ -352,8 +348,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 
 	// Create new UnlockerService.
 	service := walletunlocker.New(
-		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		false, testLoaderOpts(testDir),
+		testNetParams, nil, false, testLoaderOpts(testDir),
 	)
 
 	// We'll attempt to init the wallet with an invalid cipher seed and
@@ -385,8 +380,7 @@ func TestUnlockWallet(t *testing.T) {
 	// Create new UnlockerService that'll also drop the wallet's history on
 	// unlock.
 	service := walletunlocker.New(
-		testDir, testNetParams, true, nil, kvdb.DefaultDBTimeout,
-		true, testLoaderOpts(testDir),
+		testNetParams, nil, true, testLoaderOpts(testDir),
 	)
 
 	ctx := context.Background()
@@ -477,9 +471,9 @@ func TestChangeWalletPasswordNewRootkey(t *testing.T) {
 
 	// Create a new UnlockerService with our temp files.
 	service := walletunlocker.New(
-		testDir, testNetParams, true, tempFiles, kvdb.DefaultDBTimeout,
-		false, testLoaderOpts(testDir),
+		testNetParams, tempFiles, false, testLoaderOpts(testDir),
 	)
+	service.SetMacaroonDB(store.Backend)
 
 	ctx := context.Background()
 	newPassword := []byte("hunter2???")
@@ -588,10 +582,11 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 
 	// Create a new UnlockerService with our temp files.
 	service := walletunlocker.New(
-		testDir, testNetParams, true, []string{
+		testNetParams, []string{
 			tempMacFile, nonExistingFile,
-		}, kvdb.DefaultDBTimeout, false, testLoaderOpts(testDir),
+		}, false, testLoaderOpts(testDir),
 	)
+	service.SetMacaroonDB(store.Backend)
 
 	// Create a wallet we can try to unlock. We use the default password
 	// so we can check that the unlocker service defaults to this when

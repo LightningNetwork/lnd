@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -121,18 +122,12 @@ type UnlockerService struct {
 	// the WalletUnlocker service.
 	MacResponseChan chan []byte
 
-	chainDir       string
-	noFreelistSync bool
-	netParams      *chaincfg.Params
+	netParams *chaincfg.Params
 
 	// macaroonFiles is the path to the three generated macaroons with
 	// different access permissions. These might not exist in a stateless
 	// initialization of lnd.
 	macaroonFiles []string
-
-	// dbTimeout specifies the timeout value to use when opening the wallet
-	// database.
-	dbTimeout time.Duration
 
 	// resetWalletTransactions indicates that the wallet state should be
 	// reset on unlock to force a full chain rescan.
@@ -140,11 +135,15 @@ type UnlockerService struct {
 
 	// LoaderOpts holds the functional options for the wallet loader.
 	loaderOpts []btcwallet.LoaderOption
+
+	// macaroonDB is an instance of a database backend that stores all
+	// macaroon root keys. This will be nil on initialization and must be
+	// set using the SetMacaroonDB method as soon as it's available.
+	macaroonDB kvdb.Backend
 }
 
 // New creates and returns a new UnlockerService.
-func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
-	macaroonFiles []string, dbTimeout time.Duration,
+func New(params *chaincfg.Params, macaroonFiles []string,
 	resetWalletTransactions bool,
 	loaderOpts []btcwallet.LoaderOption) *UnlockerService {
 
@@ -155,11 +154,8 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 		// Make sure we buffer the channel is buffered so the main lnd
 		// goroutine isn't blocking on writing to it.
 		MacResponseChan:         make(chan []byte, 1),
-		chainDir:                chainDir,
 		netParams:               params,
 		macaroonFiles:           macaroonFiles,
-		dbTimeout:               dbTimeout,
-		noFreelistSync:          noFreelistSync,
 		resetWalletTransactions: resetWalletTransactions,
 		loaderOpts:              loaderOpts,
 	}
@@ -169,6 +165,12 @@ func New(chainDir string, params *chaincfg.Params, noFreelistSync bool,
 // service has been hooked to the main RPC server.
 func (u *UnlockerService) SetLoaderOpts(loaderOpts []btcwallet.LoaderOption) {
 	u.loaderOpts = loaderOpts
+}
+
+// SetMacaroonDB can be used to inject the macaroon database after the unlocker
+// service has been hooked to the main RPC server.
+func (u *UnlockerService) SetMacaroonDB(macaroonDB kvdb.Backend) {
+	u.macaroonDB = macaroonDB
 }
 
 func (u *UnlockerService) newLoader(recoveryWindow uint32) (*wallet.Loader,
@@ -262,7 +264,7 @@ func (u *UnlockerService) GenSeed(_ context.Context,
 	}
 
 	return &lnrpc.GenSeedResponse{
-		CipherSeedMnemonic: []string(mnemonic[:]),
+		CipherSeedMnemonic: mnemonic[:],
 		EncipheredSeed:     encipheredSeed[:],
 	}, nil
 }
@@ -283,9 +285,7 @@ func extractChanBackups(chanBackups *lnrpc.ChanBackupSnapshot) *ChannelsToRecove
 	var backups ChannelsToRecover
 	if chanBackups.MultiChanBackup != nil {
 		multiBackup := chanBackups.MultiChanBackup
-		backups.PackedMultiChanBackup = chanbackup.PackedMulti(
-			multiBackup.MultiChanBackup,
-		)
+		backups.PackedMultiChanBackup = multiBackup.MultiChanBackup
 	}
 
 	if chanBackups.SingleChanBackups == nil {
@@ -606,9 +606,8 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 	// then close it again.
 	// Attempt to open the macaroon DB, unlock it and then change
 	// the passphrase.
-	netDir := btcwallet.NetworkDir(u.chainDir, u.netParams)
 	macaroonService, err := macaroons.NewService(
-		netDir, "lnd", in.StatelessInit, u.dbTimeout,
+		u.macaroonDB, "lnd", in.StatelessInit,
 	)
 	if err != nil {
 		return nil, err
