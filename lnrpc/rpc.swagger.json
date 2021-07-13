@@ -3523,13 +3523,13 @@
     "lnrpcCommitmentType": {
       "type": "string",
       "enum": [
+        "UNKNOWN_COMMITMENT_TYPE",
         "LEGACY",
         "STATIC_REMOTE_KEY",
-        "ANCHORS",
-        "UNKNOWN_COMMITMENT_TYPE"
+        "ANCHORS"
       ],
-      "default": "LEGACY",
-      "description": " - LEGACY: A channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: A channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: A channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast.\n - UNKNOWN_COMMITMENT_TYPE: Returned when the commitment type isn't known or unavailable."
+      "default": "UNKNOWN_COMMITMENT_TYPE",
+      "description": " - UNKNOWN_COMMITMENT_TYPE: Returned when the commitment type isn't known or unavailable.\n - LEGACY: A channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: A channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: A channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast."
     },
     "lnrpcConnectPeerRequest": {
       "type": "object",
@@ -4963,6 +4963,10 @@
           "type": "integer",
           "format": "int64",
           "description": "Max local csv is the maximum csv delay we will allow for our own commitment\ntransaction."
+        },
+        "commitment_type": {
+          "$ref": "#/definitions/lnrpcCommitmentType",
+          "description": "The explicit commitment type to use. Note this field will only be used if\nthe remote peer supports explicit channel negotiation."
         }
       }
     },

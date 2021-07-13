@@ -1,11 +1,11 @@
 package lnwire
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // AcceptChannel is the message Bob sends to Alice after she initiates the
@@ -94,6 +94,10 @@ type AcceptChannel struct {
 	// and its length followed by the script will be written if it is set.
 	UpfrontShutdownScript DeliveryAddress
 
+	// ChannelType is the explicit channel type the initiator wishes to
+	// open.
+	ChannelType *ChannelType
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -116,11 +120,11 @@ var _ Message = (*AcceptChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
-	// Since the upfront script is encoded as a TLV record, concatenate it
-	// with the ExtraData, and write them as one.
-	tlvRecords, err := packShutdownScript(
-		a.UpfrontShutdownScript, a.ExtraData,
-	)
+	recordProducers := []tlv.RecordProducer{&a.UpfrontShutdownScript}
+	if a.ChannelType != nil {
+		recordProducers = append(recordProducers, a.ChannelType)
+	}
+	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
 	if err != nil {
 		return err
 	}
@@ -140,7 +144,7 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		a.DelayedPaymentPoint,
 		a.HtlcPoint,
 		a.FirstCommitmentPoint,
-		tlvRecords,
+		a.ExtraData,
 	)
 }
 
@@ -179,72 +183,24 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	a.UpfrontShutdownScript, a.ExtraData, err = parseShutdownScript(
-		tlvRecords,
+	// Next we'll parse out the set of known records, keeping the raw tlv
+	// bytes untouched to ensure we don't drop any bytes erroneously.
+	var chanType ChannelType
+	typeMap, err := tlvRecords.ExtractRecords(
+		&a.UpfrontShutdownScript, &chanType,
 	)
 	if err != nil {
 		return err
 	}
 
+	// Set the corresponding TLV types if they were included in the stream.
+	if _, ok := typeMap[ChannelTypeRecordType]; ok {
+		a.ChannelType = &chanType
+	}
+
+	a.ExtraData = tlvRecords
+
 	return nil
-}
-
-// packShutdownScript takes an upfront shutdown script and an opaque data blob
-// and concatenates them.
-func packShutdownScript(addr DeliveryAddress, extraData ExtraOpaqueData) (
-	ExtraOpaqueData, error) {
-
-	// We'll always write the upfront shutdown script record, regardless of
-	// the script being empty.
-	var tlvRecords ExtraOpaqueData
-
-	// Pack it into a data blob as a TLV record.
-	err := tlvRecords.PackRecords(addr.NewRecord())
-	if err != nil {
-		return nil, fmt.Errorf("unable to pack upfront shutdown "+
-			"script as TLV record: %v", err)
-	}
-
-	// Concatenate the remaining blob with the shutdown script record.
-	tlvRecords = append(tlvRecords, extraData...)
-	return tlvRecords, nil
-}
-
-// parseShutdownScript reads and extract the upfront shutdown script from the
-// passe data blob. It returns the script, if any, and the remainder of the
-// data blob.
-//
-// This can be used to parse extra data for the OpenChannel and AcceptChannel
-// messages, where the shutdown script is mandatory if extra TLV data is
-// present.
-func parseShutdownScript(tlvRecords ExtraOpaqueData) (DeliveryAddress,
-	ExtraOpaqueData, error) {
-
-	// If no TLV data is present there can't be any script available.
-	if len(tlvRecords) == 0 {
-		return nil, tlvRecords, nil
-	}
-
-	// Otherwise the shutdown script MUST be present.
-	var addr DeliveryAddress
-	tlvs, err := tlvRecords.ExtractRecords(addr.NewRecord())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Not among TLV records, this means the data was invalid.
-	if _, ok := tlvs[DeliveryAddrType]; !ok {
-		return nil, nil, fmt.Errorf("no shutdown script in non-empty " +
-			"data blob")
-	}
-
-	// Now that we have retrieved the address (which can be zero-length),
-	// we'll remove the bytes encoding it from the TLV data before
-	// returning it.
-	addrLen := len(addr)
-	tlvRecords = tlvRecords[addrLen+2:]
-
-	return addr, tlvRecords, nil
 }
 
 // MsgType returns the MessageType code which uniquely identifies this message

@@ -24,19 +24,19 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Run through the test with combinations of all the different
 	// commitment types.
-	allTypes := []commitType{
-		commitTypeLegacy,
-		commitTypeTweakless,
-		commitTypeAnchors,
+	allTypes := []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		lnrpc.CommitmentType_ANCHORS,
 	}
 
 	// testFunding is a function closure that takes Carol and Dave's
 	// commitment types and test the funding flow.
-	testFunding := func(carolCommitType, daveCommitType commitType) {
+	testFunding := func(carolCommitType, daveCommitType lnrpc.CommitmentType) {
 		// Based on the current tweak variable for Carol, we'll
 		// preferentially signal the legacy commitment format.  We do
 		// the same for Dave shortly below.
-		carolArgs := carolCommitType.Args()
+		carolArgs := nodeArgsForCommitType(carolCommitType)
 		carol := net.NewNode(t.t, "Carol", carolArgs)
 		defer shutdownAndAssert(net, t, carol)
 
@@ -45,7 +45,7 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 		net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, carol)
 
-		daveArgs := daveCommitType.Args()
+		daveArgs := nodeArgsForCommitType(daveCommitType)
 		dave := net.NewNode(t.t, "Dave", daveArgs)
 		defer shutdownAndAssert(net, t, dave)
 
@@ -78,20 +78,20 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 
 		// Dave supports anchors, type will be what
 		// Carol supports.
-		case commitTypeAnchors:
+		case lnrpc.CommitmentType_ANCHORS:
 
 		// Dave only supports tweakless, channel will
 		// be downgraded to this type if Carol supports
 		// anchors.
-		case commitTypeTweakless:
-			if expType == commitTypeAnchors {
-				expType = commitTypeTweakless
+		case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+			if expType == lnrpc.CommitmentType_ANCHORS {
+				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 			}
 
 		// Dave only supoprts legacy type, channel will
 		// be downgraded to this type.
-		case commitTypeLegacy:
-			expType = commitTypeLegacy
+		case lnrpc.CommitmentType_LEGACY:
+			expType = lnrpc.CommitmentType_LEGACY
 
 		default:
 			t.Fatalf("invalid commit type %v", daveCommitType)
@@ -100,13 +100,13 @@ func testBasicChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 		// Check that the signalled type matches what we
 		// expect.
 		switch {
-		case expType == commitTypeAnchors &&
+		case expType == lnrpc.CommitmentType_ANCHORS &&
 			chansCommitType == lnrpc.CommitmentType_ANCHORS:
 
-		case expType == commitTypeTweakless &&
+		case expType == lnrpc.CommitmentType_STATIC_REMOTE_KEY &&
 			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 
-		case expType == commitTypeLegacy &&
+		case expType == lnrpc.CommitmentType_LEGACY &&
 			chansCommitType == lnrpc.CommitmentType_LEGACY:
 
 		default:
@@ -219,7 +219,7 @@ func basicChannelFundingTest(t *harnessTest, net *lntest.NetworkHarness,
 
 	// With the channel open, ensure that the amount specified above has
 	// properly been pushed to Bob.
-	aliceLocalBalance := chanAmt - pushAmt - cType.calcStaticFee(0)
+	aliceLocalBalance := chanAmt - pushAmt - calcStaticFee(cType, 0)
 	checkChannelBalance(
 		alice, aliceChannelBalance, aliceLocalBalance, pushAmt,
 	)
@@ -344,8 +344,8 @@ func testUnconfirmedChannelFunding(net *lntest.NetworkHarness, t *harnessTest) {
 	//
 	// Note that atm we haven't obtained the chanPoint yet, so we use the
 	// type directly.
-	cType := commitTypeTweakless
-	carolLocalBalance := chanAmt - pushAmt - cType.calcStaticFee(0)
+	cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	carolLocalBalance := chanAmt - pushAmt - calcStaticFee(cType, 0)
 	checkChannelBalance(carol, 0, 0, carolLocalBalance, pushAmt)
 
 	// For Alice, her local/remote balances should be zero, and the

@@ -76,7 +76,7 @@ func testCommitmentTransactionDeadline(net *lntest.NetworkHarness,
 	setupNode := func(name string) *lntest.HarnessNode {
 		// Create the node.
 		args := []string{"--hodl.exit-settle"}
-		args = append(args, commitTypeAnchors.Args()...)
+		args = append(args, nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)...)
 		node := net.NewNode(t.t, name, args)
 
 		// Send some coins to the node.

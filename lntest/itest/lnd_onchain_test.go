@@ -168,7 +168,7 @@ func testCPFP(net *lntest.NetworkHarness, t *harnessTest) {
 // wallet.
 func testAnchorReservedValue(net *lntest.NetworkHarness, t *harnessTest) {
 	// Start two nodes supporting anchor channels.
-	args := commitTypeAnchors.Args()
+	args := nodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	alice := net.NewNode(t.t, "Alice", args)
 	defer shutdownAndAssert(net, t, alice)
 

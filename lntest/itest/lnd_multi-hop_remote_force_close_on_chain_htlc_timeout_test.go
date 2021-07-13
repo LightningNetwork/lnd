@@ -20,7 +20,7 @@ import (
 // transaction once the timeout has expired. Once we sweep the transaction, we
 // should also cancel back the initial HTLC.
 func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
-	t *harnessTest, alice, bob *lntest.HarnessNode, c commitType) {
+	t *harnessTest, alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -85,8 +85,8 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Carol has an anchor, it will be swept too.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssertType(
-		ctxt, t, net, carol, bobChanPoint, c == commitTypeAnchors,
-		true,
+		ctxt, t, net, carol, bobChanPoint,
+		c == lnrpc.CommitmentType_ANCHORS, true,
 	)
 
 	// At this point, Bob should have a pending force close channel as
@@ -98,7 +98,7 @@ func testMultiHopRemoteForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// Bob can sweep his output immediately. If there is an anchor, Bob will
 	// sweep that as well.
 	expectedTxes := 1
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 2
 	}
 

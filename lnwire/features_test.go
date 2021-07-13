@@ -353,3 +353,34 @@ func TestFeatures(t *testing.T) {
 		})
 	}
 }
+
+func TestRawFeatureVectorOnlyContains(t *testing.T) {
+	t.Parallel()
+
+	features := []FeatureBit{
+		StaticRemoteKeyOptional,
+		AnchorsZeroFeeHtlcTxOptional,
+		ExplicitChannelTypeRequired,
+	}
+	fv := NewRawFeatureVector(features...)
+	require.True(t, fv.OnlyContains(features...))
+	require.False(t, fv.OnlyContains(features[:1]...))
+}
+
+func TestEqualRawFeatureVectors(t *testing.T) {
+	t.Parallel()
+
+	a := NewRawFeatureVector(
+		StaticRemoteKeyOptional,
+		AnchorsZeroFeeHtlcTxOptional,
+		ExplicitChannelTypeRequired,
+	)
+	b := a.Clone()
+	require.True(t, a.Equals(b))
+
+	b.Unset(ExplicitChannelTypeRequired)
+	require.False(t, a.Equals(b))
+
+	b.Set(ExplicitChannelTypeOptional)
+	require.False(t, a.Equals(b))
+}

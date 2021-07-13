@@ -24,11 +24,11 @@ const (
 // p2wpkh.
 type DeliveryAddress []byte
 
-// NewRecord returns a TLV record that can be used to encode the delivery
-// address within the ExtraData TLV stream. This was intorudced in order to
+// Record returns a TLV record that can be used to encode the delivery
+// address within the ExtraData TLV stream. This was introduced in order to
 // allow the OpenChannel/AcceptChannel messages to properly be extended with
 // TLV types.
-func (d *DeliveryAddress) NewRecord() tlv.Record {
+func (d *DeliveryAddress) Record() tlv.Record {
 	addrBytes := (*[]byte)(d)
 
 	return tlv.MakeDynamicRecord(

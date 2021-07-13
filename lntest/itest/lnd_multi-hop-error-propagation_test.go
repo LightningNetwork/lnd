@@ -40,7 +40,7 @@ func testHtlcErrorPropagation(net *lntest.NetworkHarness, t *harnessTest) {
 		t.Fatalf("unable to get channel type: %v", err)
 	}
 
-	commitFee := cType.calcStaticFee(0)
+	commitFee := calcStaticFee(cType, 0)
 	assertBaseBalance := func() {
 		// Alice has opened a channel with Bob with zero push amount, so
 		// it's remote balance is zero.

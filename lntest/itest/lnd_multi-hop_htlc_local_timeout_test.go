@@ -21,7 +21,7 @@ import (
 // canceled backwards. Once the timeout has been reached, then we should sweep
 // it on-chain, and cancel the HTLC backwards.
 func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c commitType) {
+	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -104,7 +104,7 @@ func testMultiHopHtlcLocalTimeout(net *lntest.NetworkHarness, t *harnessTest,
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
 	expectedTxes := 1
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 2
 	}
 

@@ -18,8 +18,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -284,9 +284,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			t.Fatalf("unable to read msg: %v", err)
 			return false
 		}
-		if !reflect.DeepEqual(msg, newMsg) {
-			t.Fatalf("messages don't match after re-encoding: %v "+
-				"vs %v", spew.Sdump(msg), spew.Sdump(newMsg))
+		if !assert.Equalf(t, msg, newMsg, "message mismatch") {
 			return false
 		}
 
@@ -369,17 +367,16 @@ func TestLightningWireProtocol(t *testing.T) {
 					t.Fatalf("unable to generate delivery address: %v", err)
 					return
 				}
+
+				req.ChannelType = new(ChannelType)
+				*req.ChannelType = ChannelType(*randRawFeatureVector(r))
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
 
-			// 1/2 chance how having more TLV data after the
-			// shutdown script.
+			// 1/2 chance additional TLV data.
 			if r.Intn(2) == 0 {
-				// TLV type 1 of length 2.
-				req.ExtraData = []byte{1, 2, 0xff, 0xff}
-			} else {
-				req.ExtraData = []byte{}
+				req.ExtraData = []byte{0xfd, 0x00, 0xff, 0x00}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -439,16 +436,16 @@ func TestLightningWireProtocol(t *testing.T) {
 					t.Fatalf("unable to generate delivery address: %v", err)
 					return
 				}
+
+				req.ChannelType = new(ChannelType)
+				*req.ChannelType = ChannelType(*randRawFeatureVector(r))
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
-			// 1/2 chance how having more TLV data after the
-			// shutdown script.
+
+			// 1/2 chance additional TLV data.
 			if r.Intn(2) == 0 {
-				// TLV type 1 of length 2.
-				req.ExtraData = []byte{1, 2, 0xff, 0xff}
-			} else {
-				req.ExtraData = []byte{}
+				req.ExtraData = []byte{0xfd, 0x00, 0xff, 0x00}
 			}
 
 			v[0] = reflect.ValueOf(req)

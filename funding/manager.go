@@ -147,6 +147,10 @@ type reservationWithCtx struct {
 	// maxLocalCsv is the maximum csv we will accept from the remote.
 	maxLocalCsv uint16
 
+	// channelType is the explicit channel type proposed by the initiator of
+	// the channel.
+	channelType *lnwire.ChannelType
+
 	updateMtx   sync.RWMutex
 	lastUpdated time.Time
 
@@ -239,6 +243,11 @@ type InitFundingMsg struct {
 	// be the pending channel ID used for the funding flow within the wire
 	// protocol.
 	PendingChanID [32]byte
+
+	// ChannelType allows the caller to use an explicit channel type for the
+	// funding negotiation. This type will only be observed if BOTH sides
+	// support explicit channel type negotiation.
+	ChannelType *lnwire.ChannelType
 
 	// Updates is a channel which updates to the opening status of the channel
 	// are sent on.
@@ -1132,43 +1141,6 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 	}
 }
 
-// commitmentType returns the commitment type to use for the channel, based on
-// the features the two peers have available.
-func commitmentType(localFeatures,
-	remoteFeatures *lnwire.FeatureVector) lnwallet.CommitmentType {
-
-	// If both peers are signalling support for anchor commitments with
-	// zero-fee HTLC transactions, we'll use this type.
-	localZeroFee := localFeatures.HasFeature(
-		lnwire.AnchorsZeroFeeHtlcTxOptional,
-	)
-	remoteZeroFee := remoteFeatures.HasFeature(
-		lnwire.AnchorsZeroFeeHtlcTxOptional,
-	)
-	if localZeroFee && remoteZeroFee {
-		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx
-	}
-
-	// Since we don't want to support the "legacy" anchor type, we will
-	// fall back to static remote key if the nodes don't support the zero
-	// fee HTLC tx anchor type.
-	localTweakless := localFeatures.HasFeature(
-		lnwire.StaticRemoteKeyOptional,
-	)
-	remoteTweakless := remoteFeatures.HasFeature(
-		lnwire.StaticRemoteKeyOptional,
-	)
-
-	// If both nodes are signaling the proper feature bit for tweakless
-	// copmmitments, we'll use that.
-	if localTweakless && remoteTweakless {
-		return lnwallet.CommitmentTypeTweakless
-	}
-
-	// Otherwise we'll fall back to the legacy type.
-	return lnwallet.CommitmentTypeLegacy
-}
-
 // handleFundingOpen creates an initial 'ChannelReservation' within the wallet,
 // then responds to the source peer with an accept channel message progressing
 // the funding workflow.
@@ -1309,10 +1281,19 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	//
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
-	// the remote peer are signaling the proper feature bit.
-	commitType := commitmentType(
-		peer.LocalFeatures(), peer.RemoteFeatures(),
+	// the remote peer are signaling the proper feature bit if we're using
+	// implicit negotiation, and simply the channel type sent over if we're
+	// using explicit negotiation.
+	commitType, err := negotiateCommitmentType(
+		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
 	)
+	if err != nil {
+		// TODO(roasbeef): should be using soft errors
+		log.Errorf("channel type negotiation failed: %v", err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
+
 	chainHash := chainhash.Hash(msg.ChainHash)
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &chainHash,
@@ -1442,6 +1423,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		remoteMaxValue: remoteMaxValue,
 		remoteMaxHtlcs: maxHtlcs,
 		maxLocalCsv:    f.cfg.MaxLocalCSVDelay,
+		channelType:    msg.ChannelType,
 		err:            make(chan error, 1),
 		peer:           peer,
 	}
@@ -1514,6 +1496,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		HtlcPoint:             ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
+		ChannelType:           msg.ChannelType,
 	}
 
 	if err := peer.SendMessage(true, &fundingAccept); err != nil {
@@ -1544,6 +1527,29 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 
 	log.Infof("Recv'd fundingResponse for pending_id(%x)",
 		pendingChanID[:])
+
+	// We'll want to quickly check that ChannelType echoed by the channel
+	// request recipient matches what we proposed.
+	//
+	// TODO: Return errors as funding.Error to give context to remote peer?
+	if resCtx.channelType != nil {
+		if msg.ChannelType == nil {
+			err := errors.New("explicit channel type not echoed back")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+		proposedFeatures := lnwire.RawFeatureVector(*resCtx.channelType)
+		ackedFeatures := lnwire.RawFeatureVector(*msg.ChannelType)
+		if !proposedFeatures.Equals(&ackedFeatures) {
+			err := errors.New("channel type mismatch")
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+	} else if msg.ChannelType != nil {
+		err := errors.New("received unexpected channel type")
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
 
 	// The required number of confirmations should not be greater than the
 	// maximum number of confirmations required by the ChainNotifier to
@@ -3178,9 +3184,15 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
 	// the remote peer are signaling the proper feature bit.
-	commitType := commitmentType(
-		msg.Peer.LocalFeatures(), msg.Peer.RemoteFeatures(),
+	commitType, err := negotiateCommitmentType(
+		msg.ChannelType, msg.Peer.LocalFeatures(),
+		msg.Peer.RemoteFeatures(),
 	)
+	if err != nil {
+		log.Errorf("channel type negotiation failed: %v", err)
+		msg.Err <- err
+		return
+	}
 
 	// First, we'll query the fee estimator for a fee that should get the
 	// commitment transaction confirmed by the next few blocks (conf target
@@ -3272,6 +3284,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		remoteMaxValue: maxValue,
 		remoteMaxHtlcs: maxHtlcs,
 		maxLocalCsv:    maxCSV,
+		channelType:    msg.ChannelType,
 		reservation:    reservation,
 		peer:           msg.Peer,
 		updates:        msg.Updates,
@@ -3315,6 +3328,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		ChannelFlags:          channelFlags,
 		UpfrontShutdownScript: shutdown,
+		ChannelType:           msg.ChannelType,
 	}
 	if err := msg.Peer.SendMessage(true, &fundingOpen); err != nil {
 		e := fmt.Errorf("unable to send funding request message: %v",

@@ -86,6 +86,14 @@ func TestExtraOpaqueDataEncodeDecode(t *testing.T) {
 	}
 }
 
+type recordProducer struct {
+	record tlv.Record
+}
+
+func (r *recordProducer) Record() tlv.Record {
+	return r.record
+}
+
 // TestExtraOpaqueDataPackUnpackRecords tests that we're able to pack a set of
 // tlv.Records into a stream, and unpack them on the other side to obtain the
 // same set of records.
@@ -102,23 +110,23 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 		hop1 uint32 = 99
 		hop2 uint32
 	)
-	testRecords := []tlv.Record{
-		tlv.MakePrimitiveRecord(type1, &channelType1),
-		tlv.MakePrimitiveRecord(type2, &hop1),
+	testRecordsProducers := []tlv.RecordProducer{
+		&recordProducer{tlv.MakePrimitiveRecord(type1, &channelType1)},
+		&recordProducer{tlv.MakePrimitiveRecord(type2, &hop1)},
 	}
 
 	// Now that we have our set of sample records and types, we'll encode
 	// them into the passed ExtraOpaqueData instance.
 	var extraBytes ExtraOpaqueData
-	if err := extraBytes.PackRecords(testRecords...); err != nil {
+	if err := extraBytes.PackRecords(testRecordsProducers...); err != nil {
 		t.Fatalf("unable to pack records: %v", err)
 	}
 
 	// We'll now simulate decoding these types _back_ into records on the
 	// other side.
-	newRecords := []tlv.Record{
-		tlv.MakePrimitiveRecord(type1, &channelType2),
-		tlv.MakePrimitiveRecord(type2, &hop2),
+	newRecords := []tlv.RecordProducer{
+		&recordProducer{tlv.MakePrimitiveRecord(type1, &channelType2)},
+		&recordProducer{tlv.MakePrimitiveRecord(type2, &hop2)},
 	}
 	typeMap, err := extraBytes.ExtractRecords(newRecords...)
 	if err != nil {

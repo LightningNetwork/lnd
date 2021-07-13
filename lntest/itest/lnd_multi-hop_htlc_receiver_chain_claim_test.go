@@ -22,7 +22,7 @@ import (
 // extract the preimage from the sweep transaction, and finish settling the
 // HTLC backwards into the route.
 func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
-	alice, bob *lntest.HarnessNode, c commitType) {
+	alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -113,7 +113,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// transaction in order to go to the chain and sweep her HTLC. If there
 	// are anchors, Carol also sweeps hers.
 	expectedTxes := 1
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 2
 	}
 	_, err = getNTxsFromMempool(
@@ -150,7 +150,7 @@ func testMultiHopReceiverChainClaim(net *lntest.NetworkHarness, t *harnessTest,
 	// and settle the HTLC back off-chain. Bob will also sweep his anchor,
 	// if present.
 	expectedTxes = 2
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		expectedTxes = 3
 	}
 	txes, err := getNTxsFromMempool(

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -17,7 +18,7 @@ import (
 // that's timed out. At this point, the node should timeout the HTLC using the
 // HTLC timeout transaction, then cancel it backwards as normal.
 func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
-	t *harnessTest, alice, bob *lntest.HarnessNode, c commitType) {
+	t *harnessTest, alice, bob *lntest.HarnessNode, c lnrpc.CommitmentType) {
 
 	ctxb := context.Background()
 
@@ -73,7 +74,8 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// resolution mode for both of them.
 	ctxt, _ := context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssertType(
-		ctxt, t, net, bob, bobChanPoint, c == commitTypeAnchors, true,
+		ctxt, t, net, bob, bobChanPoint,
+		c == lnrpc.CommitmentType_ANCHORS, true,
 	)
 
 	// At this point, Bob should have a pending force close channel as he
@@ -95,7 +97,7 @@ func testMultiHopLocalForceCloseOnChainHtlcTimeout(net *lntest.NetworkHarness,
 	// We'll mine defaultCSV blocks in order to generate the sweep
 	// transaction of Bob's funding output. If there are anchors, mine
 	// Carol's anchor sweep too.
-	if c == commitTypeAnchors {
+	if c == lnrpc.CommitmentType_ANCHORS {
 		_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
 		require.NoError(t.t, err)
 	}

@@ -1116,10 +1116,15 @@ message HTLC {
 
 enum CommitmentType {
     /*
+    Returned when the commitment type isn't known or unavailable.
+    */
+    UNKNOWN_COMMITMENT_TYPE = 0;
+
+    /*
     A channel using the legacy commitment format having tweaked to_remote
     keys.
     */
-    LEGACY = 0;
+    LEGACY = 1;
 
     /*
     A channel that uses the modern commitment format where the key in the
@@ -1127,19 +1132,14 @@ enum CommitmentType {
     up and recovery easier as when the channel is closed, the funds go
     directly to that key.
     */
-    STATIC_REMOTE_KEY = 1;
+    STATIC_REMOTE_KEY = 2;
 
     /*
     A channel that uses a commitment format that has anchor outputs on the
     commitments, allowing fee bumping after a force close transaction has
     been broadcast.
     */
-    ANCHORS = 2;
-
-    /*
-    Returned when the commitment type isn't known or unavailable.
-    */
-    UNKNOWN_COMMITMENT_TYPE = 999;
+    ANCHORS = 3;
 }
 
 message ChannelConstraints {
@@ -1862,6 +1862,12 @@ message OpenChannelRequest {
     transaction.
     */
     uint32 max_local_csv = 17;
+
+    /*
+    The explicit commitment type to use. Note this field will only be used if
+    the remote peer supports explicit channel negotiation.
+    */
+    CommitmentType commitment_type = 18;
 }
 message OpenStatusUpdate {
     oneof update {

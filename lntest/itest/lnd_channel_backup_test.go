@@ -822,7 +822,10 @@ func testChanRestoreScenario(t *harnessTest, net *lntest.NetworkHarness,
 		"--maxbackoff=1s",
 	}
 	if testCase.anchorCommit {
-		nodeArgs = append(nodeArgs, commitTypeAnchors.Args()...)
+		anchorNodeArgs := nodeArgsForCommitType(
+			lnrpc.CommitmentType_ANCHORS,
+		)
+		nodeArgs = append(nodeArgs, anchorNodeArgs...)
 	}
 
 	// First, we'll create a brand new node we'll use within the test. If
