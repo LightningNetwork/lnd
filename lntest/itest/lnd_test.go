@@ -205,9 +205,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
 		testCase := testCase
-		name := fmt.Sprintf("%02d-of-%d/%s/%s",
-			trancheOffset+uint(idx)+1, len(allTestCases),
-			chainBackend.Name(), testCase.name)
+		name := fmt.Sprintf("tranche%02d/%02d-of-%d/%s/%s",
+			trancheIndex, trancheOffset+uint(idx)+1,
+			len(allTestCases), chainBackend.Name(), testCase.name)
 
 		success := t.Run(name, func(t1 *testing.T) {
 			cleanTestCaseName := strings.ReplaceAll(
