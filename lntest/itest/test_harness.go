@@ -79,7 +79,7 @@ func (h *harnessTest) Skipf(format string, args ...interface{}) {
 // the error stack traces it produces.
 func (h *harnessTest) Fatalf(format string, a ...interface{}) {
 	if h.lndHarness != nil {
-		h.lndHarness.SaveProfilesPages()
+		h.lndHarness.SaveProfilesPages(h.t)
 	}
 
 	stacktrace := errors.Wrap(fmt.Sprintf(format, a...), 1).ErrorStack()
