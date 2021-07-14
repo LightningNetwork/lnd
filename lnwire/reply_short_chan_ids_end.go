@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -54,12 +55,16 @@ func (c *ReplyShortChanIDsEnd) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *ReplyShortChanIDsEnd) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(w,
-		c.ChainHash[:],
-		c.Complete,
-		c.ExtraData,
-	)
+func (c *ReplyShortChanIDsEnd) Encode(w *bytes.Buffer, pver uint32) error {
+	if err := WriteBytes(w, c.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteUint8(w, c.Complete); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

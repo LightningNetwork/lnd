@@ -7,7 +7,7 @@ import (
 // ReadSize represents the size of the maximum message that can be read off the
 // wire by brontide. The buffer is used to hold the ciphertext while the
 // brontide state machine decrypts the message.
-const ReadSize = lnwire.MaxMessagePayload + 16
+const ReadSize = lnwire.MaxSliceLength + 16
 
 // Read is a static byte array sized to the maximum-allowed Lightning message
 // size, plus 16 bytes for the MAC.

@@ -7,7 +7,7 @@ import (
 // WriteSize represents the size of the maximum plaintext message than can be
 // sent using brontide. The buffer does not include extra space for the MAC, as
 // that is applied by the Noise protocol after encrypting the plaintext.
-const WriteSize = lnwire.MaxMessagePayload
+const WriteSize = lnwire.MaxSliceLength
 
 // Write is static byte array occupying to maximum-allowed plaintext-message
 // size.

@@ -1,6 +1,9 @@
 package lnwire
 
-import "io"
+import (
+	"bytes"
+	"io"
+)
 
 // PingPayload is a set of opaque bytes used to pad out a ping message.
 type PingPayload []byte
@@ -44,10 +47,12 @@ func (p *Ping) Decode(r io.Reader, pver uint32) error {
 // protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (p *Ping) Encode(w io.Writer, pver uint32) error {
-	return WriteElements(w,
-		p.NumPongBytes,
-		p.PaddingBytes)
+func (p *Ping) Encode(w *bytes.Buffer, pver uint32) error {
+	if err := WriteUint16(w, p.NumPongBytes); err != nil {
+		return err
+	}
+
+	return WritePingPayload(w, p.PaddingBytes)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

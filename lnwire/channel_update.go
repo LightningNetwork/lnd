@@ -159,33 +159,58 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Encode(w io.Writer, pver uint32) error {
-	err := WriteElements(w,
-		a.Signature,
-		a.ChainHash[:],
-		a.ShortChannelID,
-		a.Timestamp,
-		a.MessageFlags,
-		a.ChannelFlags,
-		a.TimeLockDelta,
-		a.HtlcMinimumMsat,
-		a.BaseFee,
-		a.FeeRate,
-	)
-	if err != nil {
+func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
+	if err := WriteSig(w, a.Signature); err != nil {
+		return err
+	}
+
+	if err := WriteBytes(w, a.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if err := WriteShortChannelID(w, a.ShortChannelID); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, a.Timestamp); err != nil {
+		return err
+	}
+
+	if err := WriteChanUpdateMsgFlags(w, a.MessageFlags); err != nil {
+		return err
+	}
+
+	if err := WriteChanUpdateChanFlags(w, a.ChannelFlags); err != nil {
+		return err
+	}
+
+	if err := WriteUint16(w, a.TimeLockDelta); err != nil {
+		return err
+	}
+
+	if err := WriteMilliSatoshi(w, a.HtlcMinimumMsat); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, a.BaseFee); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, a.FeeRate); err != nil {
 		return err
 	}
 
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
 	if a.MessageFlags.HasMaxHtlc() {
-		if err := WriteElements(w, a.HtlcMaximumMsat); err != nil {
+		err := WriteMilliSatoshi(w, a.HtlcMaximumMsat)
+		if err != nil {
 			return err
 		}
 	}
 
 	// Finally, append any extra opaque data.
-	return a.ExtraOpaqueData.Encode(w)
+	return WriteBytes(w, a.ExtraOpaqueData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -199,36 +224,58 @@ func (a *ChannelUpdate) MsgType() MessageType {
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
 func (a *ChannelUpdate) DataToSign() ([]byte, error) {
-
 	// We should not include the signatures itself.
-	var w bytes.Buffer
-	err := WriteElements(&w,
-		a.ChainHash[:],
-		a.ShortChannelID,
-		a.Timestamp,
-		a.MessageFlags,
-		a.ChannelFlags,
-		a.TimeLockDelta,
-		a.HtlcMinimumMsat,
-		a.BaseFee,
-		a.FeeRate,
-	)
-	if err != nil {
+	b := make([]byte, 0, MaxMsgBody)
+	buf := bytes.NewBuffer(b)
+	if err := WriteBytes(buf, a.ChainHash[:]); err != nil {
+		return nil, err
+	}
+
+	if err := WriteShortChannelID(buf, a.ShortChannelID); err != nil {
+		return nil, err
+	}
+
+	if err := WriteUint32(buf, a.Timestamp); err != nil {
+		return nil, err
+	}
+
+	if err := WriteChanUpdateMsgFlags(buf, a.MessageFlags); err != nil {
+		return nil, err
+	}
+
+	if err := WriteChanUpdateChanFlags(buf, a.ChannelFlags); err != nil {
+		return nil, err
+	}
+
+	if err := WriteUint16(buf, a.TimeLockDelta); err != nil {
+		return nil, err
+	}
+
+	if err := WriteMilliSatoshi(buf, a.HtlcMinimumMsat); err != nil {
+		return nil, err
+	}
+
+	if err := WriteUint32(buf, a.BaseFee); err != nil {
+		return nil, err
+	}
+
+	if err := WriteUint32(buf, a.FeeRate); err != nil {
 		return nil, err
 	}
 
 	// Now append optional fields if they are set. Currently, the only
 	// optional field is max HTLC.
 	if a.MessageFlags.HasMaxHtlc() {
-		if err := WriteElements(&w, a.HtlcMaximumMsat); err != nil {
+		err := WriteMilliSatoshi(buf, a.HtlcMaximumMsat)
+		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Finally, append any extra opaque data.
-	if err := a.ExtraOpaqueData.Encode(&w); err != nil {
+	if err := WriteBytes(buf, a.ExtraOpaqueData); err != nil {
 		return nil, err
 	}
 
-	return w.Bytes(), nil
+	return buf.Bytes(), nil
 }

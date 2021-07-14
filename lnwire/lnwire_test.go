@@ -232,7 +232,7 @@ func TestMaxOutPointIndex(t *testing.T) {
 	}
 
 	var b bytes.Buffer
-	if err := WriteElement(&b, op); err == nil {
+	if err := WriteOutPoint(&b, op); err == nil {
 		t.Fatalf("write of outPoint should fail, index exceeds 16-bits")
 	}
 }

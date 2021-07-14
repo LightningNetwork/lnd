@@ -1,6 +1,7 @@
 package lnwire
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
@@ -115,7 +116,7 @@ var _ Message = (*AcceptChannel)(nil)
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
+func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	// Since the upfront script is encoded as a TLV record, concatenate it
 	// with the ExtraData, and write them as one.
 	tlvRecords, err := packShutdownScript(
@@ -125,23 +126,63 @@ func (a *AcceptChannel) Encode(w io.Writer, pver uint32) error {
 		return err
 	}
 
-	return WriteElements(w,
-		a.PendingChannelID[:],
-		a.DustLimit,
-		a.MaxValueInFlight,
-		a.ChannelReserve,
-		a.HtlcMinimum,
-		a.MinAcceptDepth,
-		a.CsvDelay,
-		a.MaxAcceptedHTLCs,
-		a.FundingKey,
-		a.RevocationPoint,
-		a.PaymentPoint,
-		a.DelayedPaymentPoint,
-		a.HtlcPoint,
-		a.FirstCommitmentPoint,
-		tlvRecords,
-	)
+	if err := WriteBytes(w, a.PendingChannelID[:]); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, a.DustLimit); err != nil {
+		return err
+	}
+
+	if err := WriteMilliSatoshi(w, a.MaxValueInFlight); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, a.ChannelReserve); err != nil {
+		return err
+	}
+
+	if err := WriteMilliSatoshi(w, a.HtlcMinimum); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, a.MinAcceptDepth); err != nil {
+		return err
+	}
+
+	if err := WriteUint16(w, a.CsvDelay); err != nil {
+		return err
+	}
+
+	if err := WriteUint16(w, a.MaxAcceptedHTLCs); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.FundingKey); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.RevocationPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.PaymentPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.DelayedPaymentPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.HtlcPoint); err != nil {
+		return err
+	}
+
+	if err := WritePublicKey(w, a.FirstCommitmentPoint); err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvRecords)
 }
 
 // Decode deserializes the serialized AcceptChannel stored in the passed

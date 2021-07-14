@@ -5,8 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // MaxMessagePayload is the maximum bytes a message can be regardless of other
@@ -75,7 +73,14 @@ func (m MessageType) String() string {
 
 // Serializable is an interface which defines a lightning wire serializable
 // object.
-type Serializable = lnwire.Serializable
+type Serializable interface {
+	// Decode reads the bytes stream and converts it to the object.
+	Decode(io.Reader, uint32) error
+
+	// Encode converts object to the bytes stream and write it into the
+	// write buffer.
+	Encode(io.Writer, uint32) error
+}
 
 // Message is an interface that defines a lightning wire protocol message. The
 // interface is general in order to allow implementing types full control over

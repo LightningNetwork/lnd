@@ -12,10 +12,6 @@ import (
 	"io"
 )
 
-// MaxMessagePayload is the maximum bytes a message can be regardless of other
-// individual limits imposed by messages themselves.
-const MaxMessagePayload = 65535 // 65KB
-
 // MessageType is the unique 2 byte big-endian integer that indicates the type
 // of message on the wire. All messages have a very simple header which
 // consists simply of 2-byte message type. We omit a length field, and checksum
@@ -55,6 +51,27 @@ const (
 	MsgReplyChannelRange                   = 264
 	MsgGossipTimestampRange                = 265
 )
+
+// ErrorEncodeMessage is used when failed to encode the message payload.
+func ErrorEncodeMessage(err error) error {
+	return fmt.Errorf("failed to encode message to buffer, got %w", err)
+}
+
+// ErrorWriteMessageType is used when failed to write the message type.
+func ErrorWriteMessageType(err error) error {
+	return fmt.Errorf("failed to write message type, got %w", err)
+}
+
+// ErrorPayloadTooLarge is used when the payload size exceeds the
+// MaxMsgBody.
+func ErrorPayloadTooLarge(size int) error {
+	return fmt.Errorf(
+		"message payload is too large - encoded %d bytes, "+
+			"but maximum message payload is %d bytes",
+		size, MaxMsgBody,
+	)
+
+}
 
 // String return the string representation of message type.
 func (t MessageType) String() string {
@@ -141,8 +158,8 @@ type Serializable interface {
 	Decode(io.Reader, uint32) error
 
 	// Encode converts object to the bytes stream and write it into the
-	// writer.
-	Encode(io.Writer, uint32) error
+	// write buffer.
+	Encode(*bytes.Buffer, uint32) error
 }
 
 // Message is an interface that defines a lightning wire protocol message. The
@@ -222,44 +239,49 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	return msg, nil
 }
 
-// WriteMessage writes a lightning Message to w including the necessary header
-// information and returns the number of bytes written.
-func WriteMessage(w io.Writer, msg Message, pver uint32) (int, error) {
-	totalBytes := 0
+// WriteMessage writes a lightning Message to a buffer including the necessary
+// header information and returns the number of bytes written. If any error is
+// encountered, the buffer passed will be reset to its original state since we
+// don't want any broken bytes left. In other words, no bytes will be written
+// if there's an error. Either all or none of the message bytes will be written
+// to the buffer.
+//
+// NOTE: this method is not concurrent safe.
+func WriteMessage(buf *bytes.Buffer, msg Message, pver uint32) (int, error) {
+	// Record the size of the bytes already written in buffer.
+	oldByteSize := buf.Len()
 
-	// Encode the message payload itself into a temporary buffer.
-	// TODO(roasbeef): create buffer pool
-	var bw bytes.Buffer
-	if err := msg.Encode(&bw, pver); err != nil {
-		return totalBytes, err
-	}
-	payload := bw.Bytes()
-	lenp := len(payload)
-
-	// Enforce maximum message payload, which means the body cannot be
-	// greater than MaxMsgBody.
-	if lenp > MaxMsgBody {
-		return totalBytes, fmt.Errorf("message payload is too large - "+
-			"encoded %d bytes, but maximum message body is %d bytes",
-			lenp, MaxMsgBody)
+	// cleanBrokenBytes is a helper closure that helps reset the buffer to
+	// its original state. It truncates all the bytes written in current
+	// scope.
+	var cleanBrokenBytes = func(b *bytes.Buffer) int {
+		b.Truncate(oldByteSize)
+		return 0
 	}
 
-	// With the initial sanity checks complete, we'll now write out the
-	// message type itself.
+	// Write the message type.
 	var mType [2]byte
 	binary.BigEndian.PutUint16(mType[:], uint16(msg.MsgType()))
-	n, err := w.Write(mType[:])
-	totalBytes += n
+	msgTypeBytes, err := buf.Write(mType[:])
 	if err != nil {
-		return totalBytes, err
+		return cleanBrokenBytes(buf), ErrorWriteMessageType(err)
 	}
 
-	// With the message type written, we'll now write out the raw payload
-	// itself.
-	n, err = w.Write(payload)
-	totalBytes += n
+	// Use the write buffer to encode our message.
+	if err := msg.Encode(buf, pver); err != nil {
+		return cleanBrokenBytes(buf), ErrorEncodeMessage(err)
+	}
 
-	return totalBytes, err
+	// Enforce maximum overall message payload. The write buffer now has
+	// the size of len(originalBytes) + len(payload) + len(type). We want
+	// to enforce the payload here, so we subtract it by the length of the
+	// type and old bytes.
+	lenp := buf.Len() - oldByteSize - msgTypeBytes
+	if lenp > MaxMsgBody {
+		return cleanBrokenBytes(buf), ErrorPayloadTooLarge(lenp)
+	}
+
+	return buf.Len() - oldByteSize, nil
 }
 
 // ReadMessage reads, validates, and parses the next Lightning message from r
