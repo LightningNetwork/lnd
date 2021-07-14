@@ -119,7 +119,7 @@ var (
 // ClientDB is single database providing a persistent storage engine for the
 // wtclient.
 type ClientDB struct {
-	db     kvdb.Backend
+	kvdb.Backend
 	dbPath string
 }
 
@@ -139,8 +139,8 @@ func OpenClientDB(dbPath string, dbTimeout time.Duration) (*ClientDB, error) {
 	}
 
 	clientDB := &ClientDB{
-		db:     bdb,
-		dbPath: dbPath,
+		Backend: bdb,
+		dbPath:  dbPath,
 	}
 
 	err = initOrSyncVersions(clientDB, firstInit, clientDBVersions)
@@ -154,7 +154,7 @@ func OpenClientDB(dbPath string, dbTimeout time.Duration) (*ClientDB, error) {
 	// initialized. This allows us to assume their presence throughout all
 	// operations. If an known top-level bucket is expected to exist but is
 	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(clientDB.db, initClientDBBuckets, func() {})
+	err = kvdb.Update(clientDB, initClientDBBuckets, func() {})
 	if err != nil {
 		bdb.Close()
 		return nil, err
@@ -184,19 +184,12 @@ func initClientDBBuckets(tx kvdb.RwTx) error {
 	return nil
 }
 
-// bdb returns the backing bbolt.DB instance.
-//
-// NOTE: Part of the versionedDB interface.
-func (c *ClientDB) bdb() kvdb.Backend {
-	return c.db
-}
-
 // Version returns the database's current version number.
 //
 // NOTE: Part of the versionedDB interface.
 func (c *ClientDB) Version() (uint32, error) {
 	var version uint32
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(c, func(tx kvdb.RTx) error {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
@@ -210,11 +203,6 @@ func (c *ClientDB) Version() (uint32, error) {
 	return version, nil
 }
 
-// Close closes the underlying database.
-func (c *ClientDB) Close() error {
-	return c.db.Close()
-}
-
 // CreateTower initialize an address record used to communicate with a
 // watchtower. Each Tower is assigned a unique ID, that is used to amortize
 // storage costs of the public key when used by multiple sessions. If the tower
@@ -225,7 +213,7 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 	copy(towerPubKey[:], lnAddr.IdentityKey.SerializeCompressed())
 
 	var tower *Tower
-	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c, func(tx kvdb.RwTx) error {
 		towerIndex := tx.ReadWriteBucket(cTowerIndexBkt)
 		if towerIndex == nil {
 			return ErrUninitializedDB
@@ -320,7 +308,7 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 //
 // NOTE: An error is not returned if the tower doesn't exist.
 func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
-	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c, func(tx kvdb.RwTx) error {
 		towers := tx.ReadWriteBucket(cTowerBkt)
 		if towers == nil {
 			return ErrUninitializedDB
@@ -401,7 +389,7 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 // LoadTowerByID retrieves a tower by its tower ID.
 func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 	var tower *Tower
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(c, func(tx kvdb.RTx) error {
 		towers := tx.ReadBucket(cTowerBkt)
 		if towers == nil {
 			return ErrUninitializedDB
@@ -423,7 +411,7 @@ func (c *ClientDB) LoadTowerByID(towerID TowerID) (*Tower, error) {
 // LoadTower retrieves a tower by its public key.
 func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 	var tower *Tower
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(c, func(tx kvdb.RTx) error {
 		towers := tx.ReadBucket(cTowerBkt)
 		if towers == nil {
 			return ErrUninitializedDB
@@ -454,7 +442,7 @@ func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 // ListTowers retrieves the list of towers available within the database.
 func (c *ClientDB) ListTowers() ([]*Tower, error) {
 	var towers []*Tower
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(c, func(tx kvdb.RTx) error {
 		towerBucket := tx.ReadBucket(cTowerBkt)
 		if towerBucket == nil {
 			return ErrUninitializedDB
@@ -487,7 +475,7 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID,
 	blobType blob.Type) (uint32, error) {
 
 	var index uint32
-	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c, func(tx kvdb.RwTx) error {
 		keyIndex := tx.ReadWriteBucket(cSessionKeyIndexBkt)
 		if keyIndex == nil {
 			return ErrUninitializedDB
@@ -539,7 +527,7 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID,
 // CreateClientSession records a newly negotiated client session in the set of
 // active sessions. The session can be identified by its SessionID.
 func (c *ClientDB) CreateClientSession(session *ClientSession) error {
-	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c, func(tx kvdb.RwTx) error {
 		keyIndexes := tx.ReadWriteBucket(cSessionKeyIndexBkt)
 		if keyIndexes == nil {
 			return ErrUninitializedDB
@@ -641,7 +629,7 @@ func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 // response that do not correspond to this tower.
 func (c *ClientDB) ListClientSessions(id *TowerID) (map[SessionID]*ClientSession, error) {
 	var clientSessions map[SessionID]*ClientSession
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(c, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -697,7 +685,7 @@ func listClientSessions(sessions kvdb.RBucket,
 // channel summaries.
 func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 	var summaries map[lnwire.ChannelID]ClientChanSummary
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(c, func(tx kvdb.RTx) error {
 		chanSummaries := tx.ReadBucket(cChanSummaryBkt)
 		if chanSummaries == nil {
 			return ErrUninitializedDB
@@ -735,7 +723,7 @@ func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 func (c *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 	sweepPkScript []byte) error {
 
-	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c, func(tx kvdb.RwTx) error {
 		chanSummaries := tx.ReadWriteBucket(cChanSummaryBkt)
 		if chanSummaries == nil {
 			return ErrUninitializedDB
@@ -779,7 +767,7 @@ func (c *ClientDB) CommitUpdate(id *SessionID,
 	update *CommittedUpdate) (uint16, error) {
 
 	var lastApplied uint16
-	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(c, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -885,7 +873,7 @@ func (c *ClientDB) CommitUpdate(id *SessionID,
 func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 	lastApplied uint16) error {
 
-	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(c, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(cSessionBkt)
 		if sessions == nil {
 			return ErrUninitializedDB

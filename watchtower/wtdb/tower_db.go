@@ -3,6 +3,7 @@ package wtdb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -56,7 +57,7 @@ var (
 // TowerDB is single database providing a persistent storage engine for the
 // wtserver and lookout subsystems.
 type TowerDB struct {
-	db     kvdb.Backend
+	kvdb.Backend
 	dbPath string
 }
 
@@ -67,64 +68,82 @@ type TowerDB struct {
 // migrations will be applied before returning. Any attempt to open a database
 // with a version number higher that the latest version will fail to prevent
 // accidental reversion.
+// NOTE: We can match the channelDB by deprecating this function in favor
+// of CreateWithBackend().
 func OpenTowerDB(dbPath string, dbTimeout time.Duration) (*TowerDB, error) {
-	bdb, firstInit, err := createDBIfNotExist(
-		dbPath, towerDBName, dbTimeout,
-	)
+
+	boltBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:     dbPath,
+		DBFileName: towerDBName,
+		DBTimeout:  dbTimeout,
+	})
 	if err != nil {
+		return nil, err
+	}
+
+	towerDB, err := CreateWithBackend(boltBackend)
+	if err == nil {
+		towerDB.dbPath = dbPath
+	}
+	return towerDB, err
+}
+
+// CreateWithBackend creates towerdb instance using the passed kvdb.Backend.
+// Any necessary schemas migrations due to updates will take place as necessary.
+func CreateWithBackend(backend kvdb.Backend) (*TowerDB, error) {
+	if err := initTowerDBBuckets(backend); err != nil {
 		return nil, err
 	}
 
 	towerDB := &TowerDB{
-		db:     bdb,
-		dbPath: dbPath,
+		Backend: backend,
 	}
 
-	err = initOrSyncVersions(towerDB, firstInit, towerDBVersions)
-	if err != nil {
-		bdb.Close()
-		return nil, err
-	}
+	// TODO(czachman): apply options? (see ChannelDB).
 
-	// Now that the database version fully consistent with our latest known
-	// version, ensure that all top-level buckets known to this version are
-	// initialized. This allows us to assume their presence throughout all
-	// operations. If an known top-level bucket is expected to exist but is
-	// missing, this will trigger a ErrUninitializedDB error.
-	err = kvdb.Update(towerDB.db, initTowerDBBuckets, func() {})
+	// Synchronize the version of database and apply migrations if needed.
+	err := syncVersions(towerDB, towerDBVersions)
 	if err != nil {
-		bdb.Close()
+		backend.Close()
 		return nil, err
 	}
 
 	return towerDB, nil
 }
 
+var topLevelBuckets = [][]byte{
+	sessionsBkt,
+	updateIndexBkt,
+	updatesBkt,
+	lookoutTipBkt,
+}
+
 // initTowerDBBuckets creates all top-level buckets required to handle database
 // operations required by the latest version.
-func initTowerDBBuckets(tx kvdb.RwTx) error {
-	buckets := [][]byte{
-		sessionsBkt,
-		updateIndexBkt,
-		updatesBkt,
-		lookoutTipBkt,
-	}
+func initTowerDBBuckets(db kvdb.Backend) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 
-	for _, bucket := range buckets {
-		_, err := tx.CreateTopLevelBucket(bucket)
-		if err != nil {
-			return err
+		// Check if DB is already initialized.
+		_, err := getDBVersion(tx)
+		if err == nil {
+			return nil
 		}
+
+		for _, tlb := range topLevelBuckets {
+			_, err := tx.CreateTopLevelBucket(tlb)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Set the DB version
+		return initDBVersion(tx, getLatestDBVersion(towerDBVersions))
+	}, func() {})
+	if err != nil {
+		return fmt.Errorf("unable to initialize new towerdb: %v", err)
 	}
 
 	return nil
-}
-
-// bdb returns the backing bbolt.DB instance.
-//
-// NOTE: Part of the versionedDB interface.
-func (t *TowerDB) bdb() kvdb.Backend {
-	return t.db
 }
 
 // Version returns the database's current version number.
@@ -132,7 +151,7 @@ func (t *TowerDB) bdb() kvdb.Backend {
 // NOTE: Part of the versionedDB interface.
 func (t *TowerDB) Version() (uint32, error) {
 	var version uint32
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		var err error
 		version, err = getDBVersion(tx)
 		return err
@@ -146,16 +165,11 @@ func (t *TowerDB) Version() (uint32, error) {
 	return version, nil
 }
 
-// Close closes the underlying database.
-func (t *TowerDB) Close() error {
-	return t.db.Close()
-}
-
 // GetSessionInfo retrieves the session for the passed session id. An error is
 // returned if the session could not be found.
 func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 	var session *SessionInfo
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -177,7 +191,7 @@ func (t *TowerDB) GetSessionInfo(id *SessionID) (*SessionInfo, error) {
 // InsertSessionInfo records a negotiated session in the tower database. An
 // error is returned if the session already exists.
 func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
-	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(t, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -226,7 +240,7 @@ func (t *TowerDB) InsertSessionInfo(session *SessionInfo) error {
 // properly and the last applied values echoed by the client are sane.
 func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) {
 	var lastApplied uint16
-	err := kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(t, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -312,7 +326,7 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 // DeleteSession removes all data associated with a particular session id from
 // the tower's database.
 func (t *TowerDB) DeleteSession(target SessionID) error {
-	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(t, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -398,7 +412,7 @@ func (t *TowerDB) DeleteSession(target SessionID) error {
 // they exist in the database.
 func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 	var matches []Match
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		sessions := tx.ReadBucket(sessionsBkt)
 		if sessions == nil {
 			return ErrUninitializedDB
@@ -482,7 +496,7 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 // SetLookoutTip stores the provided epoch as the latest lookout tip epoch in
 // the tower database.
 func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
-	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(t, func(tx kvdb.RwTx) error {
 		lookoutTip := tx.ReadWriteBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB
@@ -496,7 +510,7 @@ func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
 // database.
 func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
 	var epoch *chainntnfs.BlockEpoch
-	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(t, func(tx kvdb.RTx) error {
 		lookoutTip := tx.ReadBucket(lookoutTipBkt)
 		if lookoutTip == nil {
 			return ErrUninitializedDB

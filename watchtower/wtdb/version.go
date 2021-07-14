@@ -88,8 +88,7 @@ func putDBVersion(tx kvdb.RwTx, version uint32) error {
 // databases, permitting all versioning operations to be performed generically
 // on either.
 type versionedDB interface {
-	// bdb returns the underlying bbolt database.
-	bdb() kvdb.Backend
+	kvdb.Backend
 
 	// Version returns the current version stored in the database.
 	Version() (uint32, error)
@@ -105,7 +104,7 @@ func initOrSyncVersions(db versionedDB, init bool, versions []version) error {
 	// If the database has not yet been created, we'll initialize the
 	// database version with the latest known version.
 	if init {
-		return kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
+		return kvdb.Update(db, func(tx kvdb.RwTx) error {
 			return initDBVersion(tx, getLatestDBVersion(versions))
 		}, func() {})
 	}
@@ -141,7 +140,7 @@ func syncVersions(db versionedDB, versions []version) error {
 	// Otherwise, apply any migrations in order to bring the database
 	// version up to the highest known version.
 	updates := getMigrations(versions, curVersion)
-	return kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
+	return kvdb.Update(db, func(tx kvdb.RwTx) error {
 		for i, update := range updates {
 			if update.migration == nil {
 				continue
