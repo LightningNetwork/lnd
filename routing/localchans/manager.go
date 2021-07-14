@@ -1,6 +1,7 @@
 package localchans
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -34,6 +35,9 @@ type Manager struct {
 	FetchChannel func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
 		error)
 
+	// HasActiveLike is used to check whether a channel is active or not.
+	HasActiveLink func(chanID lnwire.ChannelID) bool
+
 	// policyUpdateLock ensures that the database and the link do not fall
 	// out of sync if there are concurrent fee update calls. Without it,
 	// there is a chance that policy A updates the database, then policy B
@@ -58,6 +62,8 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	}
 
 	haveChanFilter := len(chansToUpdate) != 0
+
+	var errInactiveChans string
 
 	var edgesToUpdate []discovery.EdgeWithInfo
 	policiesToUpdate := make(map[wire.OutPoint]htlcswitch.ForwardingPolicy)
@@ -85,6 +91,21 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			return nil
 		}
 
+		// Mark this channel as found by removing it. chansToUpdate
+		// will be used to report invalid channels later on.
+		// Note: This must be executed before we look for inactive
+		// channels.
+		delete(chansToUpdate, info.ChannelPoint)
+
+		// Check whether the channel is inactive.
+		channelID := lnwire.NewChanIDFromOutPoint(&info.ChannelPoint)
+		if !r.HasActiveLink(channelID) {
+			errInactiveChans += fmt.Sprintf(
+				"channel %s:%d is not active; ",
+				info.ChannelPoint.Hash.String(), info.ChannelPoint.Index)
+			return nil
+		}
+
 		// Add updated edge to list of edges to send to gossiper.
 		edgesToUpdate = append(edgesToUpdate, discovery.EdgeWithInfo{
 			Info: info,
@@ -106,6 +127,38 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		return err
 	}
 
+	// Return an error if any of the channels in chansToUpdate
+	// were invalid.
+	var errStr string
+	for chanPoint := range chansToUpdate {
+		channel, err := r.FetchChannel(chanPoint)
+		if errors.Is(err, channeldb.ErrChannelNotFound) {
+			errStr += fmt.Sprintf(
+				"channel %s:%d not found; ",
+				chanPoint.Hash.String(), chanPoint.Index)
+			continue
+		}
+		if err != nil {
+			errStr += fmt.Sprintf(
+				"error fetching channel %s:%d; ",
+				chanPoint.Hash.String(), chanPoint.Index)
+			continue
+		}
+		if channel.IsPending {
+			errStr += fmt.Sprintf("channel %s:%d is "+
+				"not yet confirmed; ",
+				chanPoint.Hash.String(), chanPoint.Index)
+			continue
+		}
+		errStr += fmt.Sprintf("channel %s:%d could "+
+			"not update its policies; ",
+			chanPoint.Hash.String(), chanPoint.Index)
+	}
+	if errStr != "" {
+		return fmt.Errorf("policy update failed: %s %s",
+			errStr, errInactiveChans)
+	}
+
 	// Commit the policy updates to disk and broadcast to the network. We
 	// validated the new policy above, so we expect no validation errors. If
 	// this would happen because of a bug, the link policy will be
@@ -118,6 +171,15 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 	// Update active links.
 	r.UpdateForwardingPolicies(policiesToUpdate)
+
+	// Report inactive channels.
+	if errInactiveChans != "" {
+		if len(edgesToUpdate) > 0 {
+			return fmt.Errorf("not all channels were updated: %s",
+				errInactiveChans)
+		}
+		return fmt.Errorf(errInactiveChans)
+	}
 
 	return nil
 }
