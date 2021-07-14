@@ -24,25 +24,18 @@ func prefixWithMsgType(data []byte, prefix lnwire.MessageType) []byte {
 // is a valid message once deserialized, and passes a sequence of serialization
 // and deserialization checks. Returns an int that determines whether the input
 // is unique or not.
-func harness(data []byte, emptyMsg lnwire.Message) int {
+func harness(data []byte) int {
 	// Create a reader with the byte array.
 	r := bytes.NewReader(data)
 
-	// Make sure byte array length (excluding 2 bytes for message type) is
-	// less than max payload size for the wire message. We check this because
-	// otherwise `go-fuzz` will keep creating inputs that crash on ReadMessage
-	// due to a large message size.
-	payloadLen := uint32(len(data)) - 2
-	if payloadLen > emptyMsg.MaxPayloadLength(0) {
-		// Ignore this input - max payload constraint violated.
+	// Check that the created message is not greater than the maximum
+	// message size.
+	if len(data) > lnwire.MaxMessagePayload {
 		return 1
 	}
 
 	msg, err := lnwire.ReadMessage(r, 0)
 	if err != nil {
-		// go-fuzz generated []byte that cannot be represented as a
-		// wire message but we will return 0 so go-fuzz can modify the
-		// input.
 		return 1
 	}
 
@@ -67,6 +60,5 @@ func harness(data []byte, emptyMsg lnwire.Message) int {
 		panic("original message and deserialized message are not deeply equal")
 	}
 
-	// Add this input to the corpus.
 	return 1
 }
