@@ -13,11 +13,20 @@ type bandwidthHints interface {
 	// channel and a bool indicating whether the channel hint was found.
 	// If the channel is unavailable, a zero amount is returned.
 	availableChanBandwidth(channelID uint64) (lnwire.MilliSatoshi, bool)
+
+	// availableHtlcBandwidth returns the total available bandwidth that
+	// is available on a channel to add a htlc of a specific amount, and a
+	// boolean indicating whether a hint was found for the channel at all.
+	availableHtlcBandwidth(channelID uint64, amount lnwire.MilliSatoshi) (
+		lnwire.MilliSatoshi, bool)
 }
 
 // linkBandwidthQuery is the function signature used to query the link for the
-// currently available bandwidth for an edge.
-type linkBandwidthQuery func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+// currently available bandwidth for an edge. It takes an optional amount which
+// can be used to query bandwidth available for the addition of a specific
+// outgoing htlc amount (taking into account additional flow constraints).
+type linkBandwidthQuery func(*channeldb.ChannelEdgeInfo,
+	*lnwire.MilliSatoshi) lnwire.MilliSatoshi
 
 // bandwidthManager is an implementation of the bandwidthHints interface which
 // uses the linkBandwidthQuery provided to query the link for our latest local
@@ -69,5 +78,21 @@ func (b *bandwidthManager) availableChanBandwidth(channelID uint64) (
 		return 0, false
 	}
 
-	return b.getBandwidth(channel), true
+	// Query link with a nil amount because we just want the general
+	// available bandwidth.
+	return b.getBandwidth(channel, nil), true
+}
+
+// availableHtlcBandwidth returns the total available bandwidth that is
+// available on a channel to add a htlc of a specific amount, and a boolean
+// indicating whether a hint was found for the channel at all.
+func (b *bandwidthManager) availableHtlcBandwidth(channelID uint64,
+	amt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+
+	channel, ok := b.localChans[channelID]
+	if !ok {
+		return 0, false
+	}
+
+	return b.getBandwidth(channel, &amt), true
 }

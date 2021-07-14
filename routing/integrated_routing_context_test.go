@@ -33,6 +33,14 @@ func (m *mockBandwidthHints) availableChanBandwidth(channelID uint64) (
 	return balance, ok
 }
 
+func (m *mockBandwidthHints) availableHtlcBandwidth(channelID uint64,
+	_ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+
+	// We just return our available bandwidth value here because our mock
+	// is not built out to have additional logic for adding specific htlcs.
+	return m.availableChanBandwidth(channelID)
+}
+
 // integratedRoutingContext defines the context in which integrated routing
 // tests run.
 type integratedRoutingContext struct {

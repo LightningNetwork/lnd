@@ -175,8 +175,8 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		// TODO(joostjager): Possibly change to skipping this
 		// channel. The bandwidth hint is expected to be
 		// available.
-		bandwidth, ok := bandwidthHints.availableChanBandwidth(
-			edge.policy.ChannelID,
+		bandwidth, ok := bandwidthHints.availableHtlcBandwidth(
+			edge.policy.ChannelID, amt,
 		)
 		if !ok {
 			bandwidth = lnwire.MaxMilliSatoshi
