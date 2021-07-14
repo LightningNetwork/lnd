@@ -7,15 +7,12 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/pool"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,102 +29,98 @@ var (
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
+	ctx := createTestContext(t)
+	defer ctx.cleanup()
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer cleanUp()
+	aliceConn := ctx.aliceConn
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	// Send the Init message to Alice.
+	err := pushMessage(aliceConn, ctx.bobInit)
+	require.NoError(t, err)
+
+	// Alice's Peer struct is created, representing a connection to Bob.
+	alicePeer := NewBrontide(*ctx.aliceCfg)
+	require.NoError(t, alicePeer.Start())
+
+	// Cleanup Alice via Disconnect.
+	defer func() {
+		alicePeer.Disconnect(errDummy)
+		alicePeer.WaitForDisconnect(make(chan struct{}))
+	}()
+
+	// Alice should reply with an Init message, we discard it.
+	msg, err := getMessage(aliceConn)
+	require.NoError(t, err)
+	require.IsType(t, &lnwire.Init{}, msg)
+
+	// Create a test channel between Alice and Bob.
+	aliceChan, bobLnChan, err := createTestChannels(noUpdate,
+		ctx.alicePriv, ctx.bobPriv, ctx.alicePub, ctx.bobPub,
+		ctx.aliceDb, ctx.bobDb, ctx.aliceCfg.FeeEstimator,
+		ctx.bobSigner, ctx.bobPool, false)
+	require.NoError(t, err)
+
+	err = alicePeer.AddNewChannel(aliceChan, make(chan struct{}))
+	require.NoError(t, err)
+
+	chanID := lnwire.NewChanIDFromOutPoint(bobLnChan.ChannelPoint())
 
 	// We send a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer
 	// this shutdown request with a Shutdown message.
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: lnwire.NewShutdown(chanID, dummyDeliveryScript),
-	}
+	bobShutdownMsg := lnwire.NewShutdown(chanID, dummyDeliveryScript)
+	err = pushMessage(aliceConn, bobShutdownMsg)
+	require.NoError(t, err)
 
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown message")
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceShutdownMsg, ok := msg.(*lnwire.Shutdown)
+	require.True(t, ok)
 
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
+	aliceDeliveryScript := aliceShutdownMsg.Address
 
-	respDeliveryScript := shutdownMsg.Address
-
-	// Alice will then send a ClosingSigned message, indicating her proposed
-	// closing transaction fee. Alice sends the ClosingSigned message as she is
-	// the initiator of the channel.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive ClosingSigned message")
-	}
-
-	respClosingSigned, ok := msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	// Alice will then send a ClosingSigned message, indicating her
+	// proposed closing transaction fee. Alice sends the ClosingSigned
+	// message as she is the initiator of the channel.
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
 
 	// We accept the fee, and send a ClosingSigned with the same fee back,
 	// so she knows we agreed.
-	aliceFee := respClosingSigned.FeeSatoshis
-	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, respDeliveryScript,
+	aliceFee := aliceClosingSigned.FeeSatoshis
+	bobSig, _, _, err := bobLnChan.CreateCloseProposal(
+		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
-	closingSigned := lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	require.NoError(t, err)
 
-	// Alice should now see that we agreed on the fee, and should broadcast the
-	// closing transaction.
+	bobClosingSigned := lnwire.NewClosingSigned(
+		chanID, aliceFee, parsedSig,
+	)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
+
+	// Alice should now see that we agreed on the fee, and should broadcast
+	// the closing transaction.
 	select {
-	case <-broadcastTxChan:
+	case <-ctx.publTx:
 	case <-time.After(timeout):
 		t.Fatalf("closing tx not broadcast")
 	}
 
-	// Need to pull the remaining message off of Alice's outgoing queue.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive ClosingSigned message")
-	}
-	if _, ok := msg.(*lnwire.ClosingSigned); !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	// Alice will respond with a ClosingSigned.
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, aliceClosingSigned.FeeSatoshis, aliceFee)
 
 	// Alice should be waiting in a goroutine for a confirmation.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
 // TestPeerChannelClosureAcceptFeeInitiator tests the shutdown initiator's
@@ -135,120 +128,108 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
+	ctx := createTestContext(t)
+	defer ctx.cleanup()
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer cleanUp()
+	aliceConn := ctx.aliceConn
+
+	// Send the Init message to Alice.
+	err := pushMessage(aliceConn, ctx.bobInit)
+	require.NoError(t, err)
+
+	// Alice's Peer struct is created, representing a connection to Bob.
+	alicePeer := NewBrontide(*ctx.aliceCfg)
+	require.NoError(t, alicePeer.Start())
+
+	// Cleanup Alice via Disconnect.
+	defer func() {
+		alicePeer.Disconnect(errDummy)
+		alicePeer.WaitForDisconnect(make(chan struct{}))
+	}()
+
+	// Alice should reply with an Init message, we discard it.
+	msg, err := getMessage(aliceConn)
+	require.NoError(t, err)
+	require.IsType(t, &lnwire.Init{}, msg)
+
+	// Create a test channel between Alice and Bob.
+	aliceChan, bobLnChan, err := createTestChannels(noUpdate,
+		ctx.alicePriv, ctx.bobPriv, ctx.alicePub, ctx.bobPub,
+		ctx.aliceDb, ctx.bobDb, ctx.aliceCfg.FeeEstimator,
+		ctx.bobSigner, ctx.bobPool, false)
+	require.NoError(t, err)
+
+	err = alicePeer.AddNewChannel(aliceChan, make(chan struct{}))
+	require.NoError(t, err)
 
 	// We make Alice send a shutdown request.
-	updateChan := make(chan interface{}, 1)
-	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      htlcswitch.CloseRegular,
-		ChanPoint:      bobChan.ChannelPoint(),
-		Updates:        updateChan,
+		ChanPoint:      bobLnChan.ChannelPoint(),
+		Updates:        make(chan interface{}, 1),
 		TargetFeePerKw: 12500,
-		Err:            errChan,
-	}
-	alicePeer.localCloseChanReqs <- closeCommand
-
-	// We can now pull a Shutdown message off of Alice's outgoingQueue.
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown request")
+		Err:            make(chan error, 1),
 	}
 
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
+	alicePeer.HandleLocalCloseChanReqs(closeCommand)
 
-	aliceDeliveryScript := shutdownMsg.Address
+	// Alice should send a Shutdown message to Bob.
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceShutdownMsg, ok := msg.(*lnwire.Shutdown)
+	require.True(t, ok)
+
+	aliceDeliveryScript := aliceShutdownMsg.Address
 
 	// Bob will respond with his own Shutdown message.
-	chanID := shutdownMsg.ChannelID
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: lnwire.NewShutdown(chanID,
-			dummyDeliveryScript),
-	}
+	chanID := aliceShutdownMsg.ChannelID
+	bobShutdownMsg := lnwire.NewShutdown(chanID, dummyDeliveryScript)
+	err = pushMessage(aliceConn, bobShutdownMsg)
+	require.NoError(t, err)
 
 	// Alice will reply with a ClosingSigned here.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
-	closingSignedMsg, ok := msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected to receive closing signed message, got %T", msg)
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
 
 	// Bob should reply with the exact same fee in his next ClosingSigned
 	// message.
-	bobFee := closingSignedMsg.FeeSatoshis
-	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		bobFee, dummyDeliveryScript, aliceDeliveryScript,
+	aliceFee := aliceClosingSigned.FeeSatoshis
+	bobSig, _, _, err := bobLnChan.CreateCloseProposal(
+		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("unable to create close proposal: %v", err)
-	}
+	require.NoError(t, err)
+
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("unable to parse signature: %v", err)
-	}
+	require.NoError(t, err)
 
-	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
-		bobFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	bobClosingSigned := lnwire.NewClosingSigned(
+		chanID, aliceFee, parsedSig,
+	)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
 
-	// Alice should accept Bob's fee, broadcast the cooperative close tx, and
-	// send a ClosingSigned message back to Bob.
+	// Alice should accept Bob's fee, broadcast the cooperative close tx,
+	// and send a ClosingSigned message back to Bob.
 
 	// Alice should now broadcast the closing transaction.
 	select {
-	case <-broadcastTxChan:
+	case <-ctx.publTx:
 	case <-time.After(timeout):
 		t.Fatalf("closing tx not broadcast")
 	}
 
 	// Alice should respond with the ClosingSigned they both agreed upon.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, aliceClosingSigned.FeeSatoshis, aliceFee)
 
-	closingSignedMsg, ok = msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
-
-	if closingSignedMsg.FeeSatoshis != bobFee {
-		t.Fatalf("expected ClosingSigned fee to be %v, instead got %v",
-			bobFee, closingSignedMsg.FeeSatoshis)
-	}
-
-	// Alice should be waiting on a single confirmation for the coop close tx.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	// Alice should be waiting on a single confirmation for the coop close
+	// tx.
+	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
 // TestPeerChannelClosureFeeNegotiationsResponder tests the shutdown
@@ -257,192 +238,158 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
+	ctx := createTestContext(t)
+	defer ctx.cleanup()
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer cleanUp()
+	aliceConn := ctx.aliceConn
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	// Send the Init message to Alice.
+	err := pushMessage(aliceConn, ctx.bobInit)
+	require.NoError(t, err)
 
-	// Bob sends a shutdown request to Alice. She will now be the responding
-	// node in this shutdown procedure. We first expect Alice to answer this
-	// Shutdown request with a Shutdown message.
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: lnwire.NewShutdown(chanID,
-			dummyDeliveryScript),
-	}
+	// Alice's Peer struct is created, representing a connection to Bob.
+	alicePeer := NewBrontide(*ctx.aliceCfg)
+	require.NoError(t, alicePeer.Start())
 
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown message")
-	}
+	// Cleanup Alice via Disconnect.
+	defer func() {
+		alicePeer.Disconnect(errDummy)
+		alicePeer.WaitForDisconnect(make(chan struct{}))
+	}()
 
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
+	// Alice should reply with an Init message, we discard it.
+	msg, err := getMessage(aliceConn)
+	require.NoError(t, err)
+	require.IsType(t, &lnwire.Init{}, msg)
 
-	aliceDeliveryScript := shutdownMsg.Address
+	// Create a test channel between Alice and Bob.
+	aliceChan, bobLnChan, err := createTestChannels(noUpdate,
+		ctx.alicePriv, ctx.bobPriv, ctx.alicePub, ctx.bobPub,
+		ctx.aliceDb, ctx.bobDb, ctx.aliceCfg.FeeEstimator,
+		ctx.bobSigner, ctx.bobPool, false)
+	require.NoError(t, err)
+
+	err = alicePeer.AddNewChannel(aliceChan, make(chan struct{}))
+	require.NoError(t, err)
+
+	chanID := lnwire.NewChanIDFromOutPoint(bobLnChan.ChannelPoint())
+
+	// Bob sends a shutdown request to Alice. She will now be the
+	// responding node in this shutdown procedure. We first expect Alice to
+	// answer this Shutdown request with a Shutdown message.
+	bobShutdownMsg := lnwire.NewShutdown(chanID, dummyDeliveryScript)
+	err = pushMessage(aliceConn, bobShutdownMsg)
+	require.NoError(t, err)
+
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceShutdownMsg, ok := msg.(*lnwire.Shutdown)
+	require.True(t, ok)
+
+	aliceDeliveryScript := aliceShutdownMsg.Address
 
 	// As Alice is the channel initiator, she will send her ClosingSigned
 	// message.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
-
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
 	aliceClosingSigned, ok := msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	require.True(t, ok)
 
 	// Bob doesn't agree with the fee and will send one back that's 2.5x.
 	preferredRespFee := aliceClosingSigned.FeeSatoshis
 	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
-	bobSig, _, _, err := bobChan.CreateCloseProposal(
+	bobSig, _, _, err := bobLnChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
-	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	require.NoError(t, err)
 
-	// Alice will now see the new fee we propose, but with current settings it
-	// won't accept it immediately as it differs too much by its ideal fee. We
-	// should get a new proposal back, which should have the average fee rate
-	// proposed.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
+	bobClosingSigned := lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig,
+	)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
 
+	// Alice will now see the new fee we propose, but with current settings
+	// it won't accept it immediately as it differs too much by its ideal
+	// fee. We should get a new proposal back, which should have the
+	// average fee rate proposed.
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
 	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	require.True(t, ok)
 
-	// The fee sent by Alice should be less than the fee Bob just sent as Alice
-	// should attempt to compromise.
+	// The fee sent by Alice should be less than the fee Bob just sent as
+	// Alice should attempt to compromise.
 	aliceFee := aliceClosingSigned.FeeSatoshis
-	if aliceFee > increasedFee {
-		t.Fatalf("new fee should be less than our fee: new=%v, "+
-			"prior=%v", aliceFee, increasedFee)
-	}
+	require.LessOrEqual(t, int64(aliceFee), int64(increasedFee))
+
 	lastFeeResponder := aliceFee
 
 	// We try negotiating a 2.1x fee, which should also be rejected.
 	increasedFee = btcutil.Amount(float64(preferredRespFee) * 2.1)
-	bobSig, _, _, err = bobChan.CreateCloseProposal(
+	bobSig, _, _, err = bobLnChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
-	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	require.NoError(t, err)
 
-	// Bob's latest proposal still won't be accepted and Alice should send over
-	// a new ClosingSigned message. It should be the average of what Bob and
-	// Alice each proposed last time.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
+	bobClosingSigned = lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig,
+	)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
 
+	// Bob's latest proposal still won't be accepted and Alice should send
+	// over a new ClosingSigned message. It should be the average of what
+	// Bob and Alice each proposed last time.
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
 	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	require.True(t, ok)
 
 	// Alice should inch towards Bob's fee, in order to compromise.
 	// Additionally, this fee should be less than the fee Bob sent before.
 	aliceFee = aliceClosingSigned.FeeSatoshis
-	if aliceFee < lastFeeResponder {
-		t.Fatalf("new fee should be greater than prior: new=%v, "+
-			"prior=%v", aliceFee, lastFeeResponder)
-	}
-	if aliceFee > increasedFee {
-		t.Fatalf("new fee should be less than Bob's fee: new=%v, "+
-			"prior=%v", aliceFee, increasedFee)
-	}
+	require.GreaterOrEqual(t, int64(aliceFee), int64(lastFeeResponder))
+	require.LessOrEqual(t, int64(aliceFee), int64(increasedFee))
 
-	// Finally, Bob will accept the fee by echoing back the same fee that Alice
-	// just sent over.
-	bobSig, _, _, err = bobChan.CreateCloseProposal(
+	// Finally, Bob will accept the fee by echoing back the same fee that
+	// Alice just sent over.
+	bobSig, _, _, err = bobLnChan.CreateCloseProposal(
 		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
-	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	require.NoError(t, err)
 
-	// Alice will now see that Bob agreed on the fee, and broadcast the coop
-	// close transaction.
+	bobClosingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
+
+	// Alice will now see that Bob agreed on the fee, and broadcast the
+	// coop close transaction.
 	select {
-	case <-broadcastTxChan:
+	case <-ctx.publTx:
 	case <-time.After(timeout):
 		t.Fatalf("closing tx not broadcast")
 	}
 
 	// Alice should respond with the ClosingSigned they both agreed upon.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
-	if _, ok := msg.(*lnwire.ClosingSigned); !ok {
-		t.Fatalf("expected to receive closing signed message, got %T", msg)
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, aliceClosingSigned.FeeSatoshis, aliceFee)
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	// Alice should be waiting on a single confirmation for the coop close
+	// tx.
+	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
 // TestPeerChannelClosureFeeNegotiationsInitiator tests the shutdown
@@ -451,117 +398,102 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
+	ctx := createTestContext(t)
+	defer ctx.cleanup()
 
-	alicePeer, bobChan, cleanUp, err := createTestPeer(
-		notifier, broadcastTxChan, noUpdate,
-	)
-	if err != nil {
-		t.Fatalf("unable to create test channels: %v", err)
-	}
-	defer cleanUp()
+	aliceConn := ctx.aliceConn
 
-	// We make the initiator send a shutdown request.
-	updateChan := make(chan interface{}, 1)
-	errChan := make(chan error, 1)
+	// Send the Init message to Alice.
+	err := pushMessage(aliceConn, ctx.bobInit)
+	require.NoError(t, err)
+
+	// Alice's Peer struct is created, representing a connection to Bob.
+	alicePeer := NewBrontide(*ctx.aliceCfg)
+	require.NoError(t, alicePeer.Start())
+
+	// Cleanup Alice via Disconnect.
+	defer func() {
+		alicePeer.Disconnect(errDummy)
+		alicePeer.WaitForDisconnect(make(chan struct{}))
+	}()
+
+	// Alice should reply with an Init message, we discard it.
+	msg, err := getMessage(aliceConn)
+	require.NoError(t, err)
+	require.IsType(t, &lnwire.Init{}, msg)
+
+	// Create a test channel between Alice and Bob.
+	aliceChan, bobLnChan, err := createTestChannels(noUpdate,
+		ctx.alicePriv, ctx.bobPriv, ctx.alicePub, ctx.bobPub,
+		ctx.aliceDb, ctx.bobDb, ctx.aliceCfg.FeeEstimator,
+		ctx.bobSigner, ctx.bobPool, false)
+	require.NoError(t, err)
+
+	err = alicePeer.AddNewChannel(aliceChan, make(chan struct{}))
+	require.NoError(t, err)
+
+	// We make Alice send a shutdown request.
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      htlcswitch.CloseRegular,
-		ChanPoint:      bobChan.ChannelPoint(),
-		Updates:        updateChan,
+		ChanPoint:      bobLnChan.ChannelPoint(),
+		Updates:        make(chan interface{}, 1),
 		TargetFeePerKw: 12500,
-		Err:            errChan,
+		Err:            make(chan error, 1),
 	}
 
-	alicePeer.localCloseChanReqs <- closeCommand
+	alicePeer.HandleLocalCloseChanReqs(closeCommand)
 
 	// Alice should now send a Shutdown request to Bob.
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown request")
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceShutdownMsg, ok := msg.(*lnwire.Shutdown)
+	require.True(t, ok)
 
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
+	aliceDeliveryScript := aliceShutdownMsg.Address
 
 	// Bob will answer the Shutdown message with his own Shutdown.
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
-	respShutdown := lnwire.NewShutdown(chanID, dummyDeliveryScript)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: respShutdown,
-	}
+	chanID := aliceShutdownMsg.ChannelID
+	bobShutdownMsg := lnwire.NewShutdown(chanID, dummyDeliveryScript)
+	err = pushMessage(aliceConn, bobShutdownMsg)
+	require.NoError(t, err)
 
 	// Alice should now respond with a ClosingSigned message with her ideal
 	// fee rate.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed")
-	}
-	closingSignedMsg, ok := msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
 
-	idealFeeRate := closingSignedMsg.FeeSatoshis
+	idealFeeRate := aliceClosingSigned.FeeSatoshis
 	lastReceivedFee := idealFeeRate
 
 	increasedFee := btcutil.Amount(float64(idealFeeRate) * 2.1)
 	lastSentFee := increasedFee
 
-	bobSig, _, _, err := bobChan.CreateCloseProposal(
+	bobSig, _, _, err := bobLnChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("unable to parse signature: %v", err)
-	}
+	require.NoError(t, err)
 
-	closingSigned := lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	bobClosingSigned := lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig,
+	)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
 
 	// It still won't be accepted, and we should get a new proposal, the
 	// average of what we proposed, and what they proposed last time.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed")
-	}
-	closingSignedMsg, ok = msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
 
-	aliceFee := closingSignedMsg.FeeSatoshis
-	if aliceFee < lastReceivedFee {
-		t.Fatalf("new fee should be greater than prior: new=%v, old=%v",
-			aliceFee, lastReceivedFee)
-	}
-	if aliceFee > lastSentFee {
-		t.Fatalf("new fee should be less than our fee: new=%v, old=%v",
-			aliceFee, lastSentFee)
-	}
+	aliceFee := aliceClosingSigned.FeeSatoshis
+	require.GreaterOrEqual(t, int64(aliceFee), int64(lastReceivedFee))
+	require.LessOrEqual(t, int64(aliceFee), int64(lastSentFee))
 
 	lastReceivedFee = aliceFee
 
@@ -569,87 +501,63 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	increasedFee = btcutil.Amount(float64(idealFeeRate) * 1.5)
 	lastSentFee = increasedFee
 
-	bobSig, _, _, err = bobChan.CreateCloseProposal(
+	bobSig, _, _, err = bobLnChan.CreateCloseProposal(
 		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
+	require.NoError(t, err)
 
-	closingSigned = lnwire.NewClosingSigned(chanID, increasedFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	bobClosingSigned = lnwire.NewClosingSigned(
+		chanID, increasedFee, parsedSig,
+	)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
 
 	// Alice won't accept Bob's new proposal, and Bob should receive a new
-	// proposal which is the average of what Bob proposed and Alice proposed
-	// last time.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed")
-	}
-	closingSignedMsg, ok = msg.(*lnwire.ClosingSigned)
-	if !ok {
-		t.Fatalf("expected ClosingSigned message, got %T", msg)
-	}
+	// proposal which is the average of what Bob proposed and Alice
+	// proposed last time.
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
 
-	aliceFee = closingSignedMsg.FeeSatoshis
-	if aliceFee < lastReceivedFee {
-		t.Fatalf("new fee should be greater than prior: new=%v, old=%v",
-			aliceFee, lastReceivedFee)
-	}
-	if aliceFee > lastSentFee {
-		t.Fatalf("new fee should be less than Bob's fee: new=%v, old=%v",
-			aliceFee, lastSentFee)
-	}
+	aliceFee = aliceClosingSigned.FeeSatoshis
+	require.GreaterOrEqual(t, int64(aliceFee), int64(lastReceivedFee))
+	require.LessOrEqual(t, int64(aliceFee), int64(lastSentFee))
 
-	// Bob will now accept their fee by sending back a ClosingSigned message
-	// with an identical fee.
-	bobSig, _, _, err = bobChan.CreateCloseProposal(
+	// Bob will now accept their fee by sending back a ClosingSigned
+	// message with an identical fee.
+	bobSig, _, _, err = bobLnChan.CreateCloseProposal(
 		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
 	)
-	if err != nil {
-		t.Fatalf("error creating close proposal: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsedSig, err = lnwire.NewSigFromSignature(bobSig)
-	if err != nil {
-		t.Fatalf("error parsing signature: %v", err)
-	}
-	closingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
-	alicePeer.chanCloseMsgs <- &closeMsg{
-		cid: chanID,
-		msg: closingSigned,
-	}
+	require.NoError(t, err)
+
+	bobClosingSigned = lnwire.NewClosingSigned(chanID, aliceFee, parsedSig)
+	err = pushMessage(aliceConn, bobClosingSigned)
+	require.NoError(t, err)
 
 	// Wait for closing tx to be broadcasted.
 	select {
-	case <-broadcastTxChan:
+	case <-ctx.publTx:
 	case <-time.After(timeout):
 		t.Fatalf("closing tx not broadcast")
 	}
 
 	// Alice should respond with the ClosingSigned they both agreed upon.
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive closing signed message")
-	}
-	if _, ok := msg.(*lnwire.ClosingSigned); !ok {
-		t.Fatalf("expected to receive closing signed message, got %T", msg)
-	}
+	msg, err = getMessage(aliceConn)
+	require.NoError(t, err)
+	aliceClosingSigned, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, aliceClosingSigned.FeeSatoshis, aliceFee)
 
-	// Alice should be waiting on a single confirmation for the coop close tx.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	// Alice should be waiting on a single confirmation for the coop close
+	// tx.
+	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{}
 }
 
 // TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors
@@ -729,8 +637,8 @@ func TestChooseDeliveryScript(t *testing.T) {
 func TestCustomShutdownScript(t *testing.T) {
 	script := genScript(t, p2SHAddress)
 
-	// setShutdown is a function which sets the upfront shutdown address for
-	// the local channel.
+	// setShutdown is a function which sets the upfront shutdown address
+	// for the local channel.
 	setShutdown := func(a, b *channeldb.OpenChannel) {
 		a.LocalShutdownScript = script
 		b.RemoteShutdownScript = script
@@ -739,15 +647,16 @@ func TestCustomShutdownScript(t *testing.T) {
 	tests := []struct {
 		name string
 
-		// update is a function used to set values on the channel set up for the
-		// test. It is used to set values for upfront shutdown addresses.
+		// update is a function used to set values on the channel set
+		// up for the test. It is used to set values for upfront
+		// shutdown addresses.
 		update func(a, b *channeldb.OpenChannel)
 
 		// userCloseScript is the address specified by the user.
 		userCloseScript lnwire.DeliveryAddress
 
-		// expectedScript is the address we expect to be set on the shutdown
-		// message.
+		// expectedScript is the address we expect to be set on the
+		// shutdown message.
 		expectedScript lnwire.DeliveryAddress
 
 		// expectedError is the error we expect, if any.
@@ -786,75 +695,100 @@ func TestCustomShutdownScript(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			notifier := &mock.ChainNotifier{
-				SpendChan: make(chan *chainntnfs.SpendDetail),
-				EpochChan: make(chan *chainntnfs.BlockEpoch),
-				ConfChan:  make(chan *chainntnfs.TxConfirmation),
-			}
-			broadcastTxChan := make(chan *wire.MsgTx)
 
-			// Open a channel.
-			alicePeer, bobChan, cleanUp, err := createTestPeer(
-				notifier, broadcastTxChan, test.update,
+			ctx := createTestContext(t)
+			defer ctx.cleanup()
+
+			aliceConn := ctx.aliceConn
+
+			// Send the Init message to Alice.
+			err := pushMessage(aliceConn, ctx.bobInit)
+			require.NoError(t, err)
+
+			// Alice's Peer struct is created, representing a
+			// connection to Bob.
+			alicePeer := NewBrontide(*ctx.aliceCfg)
+			require.NoError(t, alicePeer.Start())
+
+			// Cleanup Alice via Disconnect.
+			defer func() {
+				alicePeer.Disconnect(errDummy)
+				alicePeer.WaitForDisconnect(
+					make(chan struct{}),
+				)
+			}()
+
+			// Alice should reply with an Init message, we discard
+			// it.
+			msg, err := getMessage(aliceConn)
+			require.NoError(t, err)
+			require.IsType(t, &lnwire.Init{}, msg)
+
+			// Create a test channel between Alice and Bob.
+			aliceChan, bobLnChan, err := createTestChannels(
+				test.update, ctx.alicePriv, ctx.bobPriv,
+				ctx.alicePub, ctx.bobPub, ctx.aliceDb,
+				ctx.bobDb, ctx.aliceCfg.FeeEstimator,
+				ctx.bobSigner, ctx.bobPool, false)
+			require.NoError(t, err)
+
+			err = alicePeer.AddNewChannel(
+				aliceChan, make(chan struct{}),
 			)
-			if err != nil {
-				t.Fatalf("unable to create test channels: %v", err)
-			}
-			defer cleanUp()
+			require.NoError(t, err)
 
-			// Request initiator to cooperatively close the channel, with
-			// a specified delivery address.
-			updateChan := make(chan interface{}, 1)
+			// Request initiator to cooperatively close the
+			// channel, with a specified delivery address.
 			errChan := make(chan error, 1)
-			chanPoint := bobChan.ChannelPoint()
-			closeCommand := htlcswitch.ChanClose{
+			closeCommand := &htlcswitch.ChanClose{
 				CloseType:      htlcswitch.CloseRegular,
-				ChanPoint:      chanPoint,
-				Updates:        updateChan,
+				ChanPoint:      bobLnChan.ChannelPoint(),
+				Updates:        make(chan interface{}, 1),
 				TargetFeePerKw: 12500,
 				DeliveryScript: test.userCloseScript,
 				Err:            errChan,
 			}
 
-			// Send the close command for the correct channel and check that a
-			// shutdown message is sent.
-			alicePeer.localCloseChanReqs <- &closeCommand
+			// Send the close command for the correct channel and
+			// check that a shutdown message is sent.
+			alicePeer.HandleLocalCloseChanReqs(closeCommand)
 
-			var msg lnwire.Message
-			select {
-			case outMsg := <-alicePeer.outgoingQueue:
-				msg = outMsg.msg
-			case <-time.After(timeout):
-				t.Fatalf("did not receive shutdown message")
-			case err := <-errChan:
-				// Fail if we do not expect an error.
-				if err != test.expectedError {
-					t.Fatalf("error closing channel: %v", err)
+			if test.expectedError != nil {
+				select {
+				case <-time.After(timeout):
+					t.Fatalf("did not receive error")
+				case err := <-errChan:
+					// Fail if we do not expect this error.
+					require.Equal(t, err, test.expectedError)
+
+					// Terminate the test early if we have
+					// received the expected error, no
+					// further action is expected.
+					return
 				}
-
-				// Terminate the test early if have received an error, no
-				// further action is expected.
-				return
 			}
 
 			// Check that we have received a shutdown message.
-			shutdownMsg, ok := msg.(*lnwire.Shutdown)
-			if !ok {
-				t.Fatalf("expected shutdown message, got %T", msg)
-			}
+			msg, err = getMessage(aliceConn)
+			require.NoError(t, err)
+			aliceShutdownMsg, ok := msg.(*lnwire.Shutdown)
+			require.True(t, ok)
 
-			// If the test has not specified an expected address, do not check
-			// whether the shutdown address matches. This covers the case where
-			// we epect shutdown to a random address and cannot match it.
+			// If the test has not specified an expected address,
+			// do not check whether the shutdown address matches.
+			// This covers the case where we expect shutdown to a
+			// random address and cannot match it.
 			if len(test.expectedScript) == 0 {
 				return
 			}
 
-			// Check that the Shutdown message includes the expected delivery
-			// script.
-			if !bytes.Equal(test.expectedScript, shutdownMsg.Address) {
+			// Check that the Shutdown message includes the
+			// expected delivery script.
+			if !bytes.Equal(
+				test.expectedScript, aliceShutdownMsg.Address,
+			) {
 				t.Fatalf("expected delivery script: %x, got: %x",
-					test.expectedScript, shutdownMsg.Address)
+					test.expectedScript, aliceShutdownMsg.Address)
 			}
 		})
 	}
@@ -910,6 +844,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: rawLegacy,
 				Features:       rawFeatureOptional,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 		{
@@ -919,6 +854,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: rawLegacy,
 				Features:       rawFeatureOptional,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 		{
@@ -928,6 +864,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: rawLegacy,
 				Features:       rawFeatureRequired,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 
@@ -942,6 +879,7 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 			expectedInit: &lnwire.Init{
 				GlobalFeatures: legacyCombinedOptional,
 				Features:       rawFeatureOptional,
+				ExtraData:      make([]byte, 0),
 			},
 		},
 	}
@@ -950,36 +888,48 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			writeBufferPool := pool.NewWriteBuffer(
-				pool.DefaultWriteBufferGCInterval,
-				pool.DefaultWriteBufferExpiryInterval,
+			ctx := createTestContext(t)
+			defer ctx.cleanup()
+
+			aliceConn := ctx.aliceConn
+
+			ctx.aliceCfg.LegacyFeatures = legacy
+			ctx.aliceCfg.Features = test.features
+
+			// Create a test channel between Alice and Bob.
+			_, _, err := createTestChannels(
+				noUpdate, ctx.alicePriv, ctx.bobPriv,
+				ctx.alicePub, ctx.bobPub, ctx.aliceDb,
+				ctx.bobDb, ctx.aliceCfg.FeeEstimator,
+				ctx.bobSigner, ctx.bobPool, test.legacy,
 			)
-
-			writePool := pool.NewWrite(
-				writeBufferPool, 1, timeout,
-			)
-			require.NoError(t, writePool.Start())
-
-			mockConn := newMockConn(t, 1)
-
-			p := Brontide{
-				cfg: Config{
-					LegacyFeatures: legacy,
-					Features:       test.features,
-					Conn:           mockConn,
-					WritePool:      writePool,
-				},
-			}
-
-			var b bytes.Buffer
-			_, err := lnwire.WriteMessage(&b, test.expectedInit, 0)
 			require.NoError(t, err)
 
-			// Send our init message, assert that we write our expected message
-			// and shutdown our write pool.
-			require.NoError(t, p.sendInitMsg(test.legacy))
-			mockConn.assertWrite(b.Bytes())
-			require.NoError(t, writePool.Stop())
+			// Send the Init message to Alice.
+			err = pushMessage(aliceConn, ctx.bobInit)
+			require.NoError(t, err)
+
+			// Alice's Peer struct is created, representing a
+			// connection to Bob.
+			alicePeer := NewBrontide(*ctx.aliceCfg)
+			require.NoError(t, alicePeer.Start())
+
+			// Cleanup Alice via Disconnect.
+			defer func() {
+				alicePeer.Disconnect(errDummy)
+				alicePeer.WaitForDisconnect(
+					make(chan struct{}),
+				)
+			}()
+
+			// Alice should reply with an Init message, we discard
+			// it during this test.
+			msg, err := getMessage(aliceConn)
+			require.NoError(t, err)
+			aliceInitMsg, ok := msg.(*lnwire.Init)
+			require.True(t, ok)
+
+			require.Equal(t, aliceInitMsg, test.expectedInit)
 		})
 	}
 }

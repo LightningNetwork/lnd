@@ -9,6 +9,10 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
 
+const (
+	timeout = 5 * time.Second
+)
+
 // MockPeer emulates a single endpoint of brontide transport.
 type MockPeer struct {
 	remotePub  *btcec.PublicKey
@@ -173,6 +177,46 @@ func (p *MockPeer) Read(dst []byte) (int, error) {
 // SetDeadline is not implemented.
 func (p *MockPeer) SetDeadline(t time.Time) error {
 	panic("not implemented")
+}
+
+// WriteMessage mocks sending the message.
+func (p *MockPeer) WriteMessage(msg []byte) error {
+	// Since we may be using a write pool, we copy the message
+	// over before sending it through.
+	msgLen := len(msg)
+	msgCopy := make([]byte, msgLen)
+	if msgLen != copy(msgCopy, msg) {
+		return fmt.Errorf("failed to copy message: %v", msg)
+	}
+
+	select {
+	case p.OutgoingMsgs <- msgCopy:
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout sending message: %v", msg)
+	}
+
+	return nil
+}
+
+// Flush mocks flushing the message down the wire.
+func (p *MockPeer) Flush() (int, error) {
+	return 0, nil
+}
+
+// ReadNextHeader mocks reading the next header.
+func (p *MockPeer) ReadNextHeader() (uint32, error) {
+	return 0, nil
+}
+
+// ReadNextBody mocks reading the next body.
+func (p *MockPeer) ReadNextBody(_ []byte) ([]byte, error) {
+	select {
+	case msg := <-p.IncomingMsgs:
+		return msg, nil
+
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout reading message")
+	}
 }
 
 // Compile-time constraint ensuring the MockPeer implements the wserver.Peer

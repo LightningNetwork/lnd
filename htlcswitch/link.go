@@ -134,6 +134,9 @@ type ChannelLinkConfig struct {
 	// TODO(conner): remove after refactoring htlcswitch testing framework.
 	Switch *Switch
 
+	// BestHeight returns the best known height.
+	BestHeight func() uint32
+
 	// ForwardPackets attempts to forward the batch of htlcs through the
 	// switch. The function returns and error in case it fails to send one or
 	// more packets. The link's quit signal should be provided to allow
@@ -2677,7 +2680,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		heightNow := l.cfg.Switch.BestHeight()
+		heightNow := l.cfg.BestHeight()
 
 		pld, err := chanIterator.HopPayload()
 		if err != nil {

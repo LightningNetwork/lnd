@@ -63,10 +63,20 @@ func (w *WalletController) ConfirmedBalance(confs int32,
 func (w *WalletController) NewAddress(addrType lnwallet.AddressType,
 	change bool, _ string) (btcutil.Address, error) {
 
-	addr, _ := btcutil.NewAddressPubKey(
-		w.RootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams,
-	)
-	return addr, nil
+	key := w.RootKey.PubKey().SerializeCompressed()
+
+	if addrType == lnwallet.WitnessPubKey {
+		witProgram := btcutil.Hash160(key)
+
+		addr, err := btcutil.NewAddressWitnessPubKeyHash(
+			witProgram, &chaincfg.MainNetParams,
+		)
+
+		return addr, err
+	}
+
+	addr, err := btcutil.NewAddressPubKey(key, &chaincfg.MainNetParams)
+	return addr, err
 }
 
 // LastUnusedAddress currently returns dummy values.
