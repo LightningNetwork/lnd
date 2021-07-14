@@ -15,7 +15,7 @@ func TestUnifiedPolicies(t *testing.T) {
 	toNode := route.Vertex{2}
 	fromNode := route.Vertex{3}
 
-	bandwidthHints := map[uint64]lnwire.MilliSatoshi{}
+	bandwidthHints := &mockBandwidthHints{}
 
 	u := newUnifiedPolicies(source, toNode, nil)
 

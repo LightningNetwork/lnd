@@ -18,6 +18,21 @@ const (
 	targetNodeID = 2
 )
 
+type mockBandwidthHints struct {
+	hints map[uint64]lnwire.MilliSatoshi
+}
+
+func (m *mockBandwidthHints) availableChanBandwidth(channelID uint64) (
+	lnwire.MilliSatoshi, bool) {
+
+	if m.hints == nil {
+		return 0, false
+	}
+
+	balance, ok := m.hints[channelID]
+	return balance, ok
+}
+
 // integratedRoutingContext defines the context in which integrated routing
 // tests run.
 type integratedRoutingContext struct {
@@ -130,14 +145,16 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		c.t.Fatal(err)
 	}
 
-	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi, error) {
+	getBandwidthHints := func() (bandwidthHints, error) {
 		// Create bandwidth hints based on local channel balances.
 		bandwidthHints := map[uint64]lnwire.MilliSatoshi{}
 		for _, ch := range c.graph.nodes[c.source.pubkey].channels {
 			bandwidthHints[ch.id] = ch.balance
 		}
 
-		return bandwidthHints, nil
+		return &mockBandwidthHints{
+			hints: bandwidthHints,
+		}, nil
 	}
 
 	var paymentAddr [32]byte
