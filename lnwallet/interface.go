@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
@@ -80,6 +81,16 @@ type Utxo struct {
 	wire.OutPoint
 }
 
+// OutputDetail contains additional information on a destination address.
+type OutputDetail struct {
+	OutputType   txscript.ScriptClass
+	Addresses    []btcutil.Address
+	PkScript     []byte
+	OutputIndex  int
+	Value        btcutil.Amount
+	IsOurAddress bool
+}
+
 // TransactionDetail describes a transaction with either inputs which belong to
 // the wallet, or has outputs that pay to the wallet.
 type TransactionDetail struct {
@@ -114,8 +125,9 @@ type TransactionDetail struct {
 	// TotalFees is the total fee in satoshis paid by this transaction.
 	TotalFees int64
 
-	// DestAddresses are the destinations for a transaction
-	DestAddresses []btcutil.Address
+	// OutputDetails contains output data for each destination address, such
+	// as the output script and amount.
+	OutputDetails []OutputDetail
 
 	// RawTx returns the raw serialized transaction.
 	RawTx []byte

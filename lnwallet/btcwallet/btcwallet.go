@@ -923,18 +923,35 @@ func minedTransactionsToDetails(
 			return nil, err
 		}
 
-		var destAddresses []btcutil.Address
-		for _, txOut := range wireTx.TxOut {
-			_, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
+		// isOurAddress is a map containing the output indices
+		// controlled by the wallet.
+		// Note: We make use of the information in `MyOutputs` provided
+		// by the `wallet.TransactionSummary` structure that holds
+		// information only if the output is controlled by the wallet.
+		isOurAddress := make(map[int]bool, len(tx.MyOutputs))
+		for _, o := range tx.MyOutputs {
+			isOurAddress[int(o.Index)] = true
+		}
+
+		var outputDetails []lnwallet.OutputDetail
+		for i, txOut := range wireTx.TxOut {
+			var addresses []btcutil.Address
+			sc, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
 				txOut.PkScript, chainParams,
 			)
-			if err != nil {
-				// Skip any unsupported addresses to prevent
-				// other transactions from not being returned.
-				continue
+			if err == nil {
+				// Add supported addresses.
+				addresses = outAddresses
 			}
 
-			destAddresses = append(destAddresses, outAddresses...)
+			outputDetails = append(outputDetails, lnwallet.OutputDetail{
+				OutputType:   sc,
+				Addresses:    addresses,
+				PkScript:     txOut.PkScript,
+				OutputIndex:  i,
+				Value:        btcutil.Amount(txOut.Value),
+				IsOurAddress: isOurAddress[i],
+			})
 		}
 
 		txDetail := &lnwallet.TransactionDetail{
@@ -944,7 +961,7 @@ func minedTransactionsToDetails(
 			BlockHeight:      block.Height,
 			Timestamp:        block.Timestamp,
 			TotalFees:        int64(tx.Fee),
-			DestAddresses:    destAddresses,
+			OutputDetails:    outputDetails,
 			RawTx:            tx.Transaction,
 			Label:            tx.Label,
 		}
@@ -975,24 +992,42 @@ func unminedTransactionsToDetail(
 		return nil, err
 	}
 
-	var destAddresses []btcutil.Address
-	for _, txOut := range wireTx.TxOut {
-		_, outAddresses, _, err :=
-			txscript.ExtractPkScriptAddrs(txOut.PkScript, chainParams)
-		if err != nil {
-			// Skip any unsupported addresses to prevent other
-			// transactions from not being returned.
-			continue
+	// isOurAddress is a map containing the output indices controlled by
+	// the wallet.
+	// Note: We make use of the information in `MyOutputs` provided
+	// by the `wallet.TransactionSummary` structure that holds information
+	// only if the output is controlled by the wallet.
+	isOurAddress := make(map[int]bool, len(summary.MyOutputs))
+	for _, o := range summary.MyOutputs {
+		isOurAddress[int(o.Index)] = true
+	}
+
+	var outputDetails []lnwallet.OutputDetail
+	for i, txOut := range wireTx.TxOut {
+		var addresses []btcutil.Address
+		sc, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, chainParams,
+		)
+		if err == nil {
+			// Add supported addresses.
+			addresses = outAddresses
 		}
 
-		destAddresses = append(destAddresses, outAddresses...)
+		outputDetails = append(outputDetails, lnwallet.OutputDetail{
+			OutputType:   sc,
+			Addresses:    addresses,
+			PkScript:     txOut.PkScript,
+			OutputIndex:  i,
+			Value:        btcutil.Amount(txOut.Value),
+			IsOurAddress: isOurAddress[i],
+		})
 	}
 
 	txDetail := &lnwallet.TransactionDetail{
 		Hash:          *summary.Hash,
 		TotalFees:     int64(summary.Fee),
 		Timestamp:     summary.Timestamp,
-		DestAddresses: destAddresses,
+		OutputDetails: outputDetails,
 		RawTx:         summary.Transaction,
 		Label:         summary.Label,
 	}

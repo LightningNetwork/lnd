@@ -537,6 +537,38 @@ message Utxo {
     int64 confirmations = 6;
 }
 
+enum OutputScriptType {
+    SCRIPT_TYPE_PUBKEY_HASH = 0;
+    SCRIPT_TYPE_SCRIPT_HASH = 1;
+    SCRIPT_TYPE_WITNESS_V0_PUBKEY_HASH = 2;
+    SCRIPT_TYPE_WITNESS_V0_SCRIPT_HASH = 3;
+    SCRIPT_TYPE_PUBKEY = 4;
+    SCRIPT_TYPE_MULTISIG = 5;
+    SCRIPT_TYPE_NULLDATA = 6;
+    SCRIPT_TYPE_NON_STANDARD = 7;
+    SCRIPT_TYPE_WITNESS_UNKNOWN = 8;
+}
+
+message OutputDetail {
+    // The type of the output
+    OutputScriptType output_type = 1;
+
+    // The address
+    string address = 2;
+
+    // The pkscript in hex
+    string pk_script = 3;
+
+    // The output index used in the raw transaction
+    int64 output_index = 4;
+
+    // The value of the output coin in satoshis
+    int64 amount = 5;
+
+    // Denotes if the output is controlled by the internal wallet
+    bool is_our_address = 6;
+}
+
 message Transaction {
     // The transaction hash
     string tx_hash = 1;
@@ -559,8 +591,12 @@ message Transaction {
     // Fees paid for this transaction
     int64 total_fees = 7;
 
-    // Addresses that received funds for this transaction
-    repeated string dest_addresses = 8;
+    // Addresses that received funds for this transaction. Deprecated as it is
+    // now incorporated in the output_details field.
+    repeated string dest_addresses = 8 [deprecated = true];
+
+    // Outputs that received funds for this transaction
+    repeated OutputDetail output_details = 11;
 
     // The raw transaction hex.
     string raw_tx_hex = 9;

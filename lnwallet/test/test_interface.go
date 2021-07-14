@@ -1140,6 +1140,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// Create 5 new outputs spendable by the wallet.
 	const numTxns = 5
 	const outputAmt = btcutil.SatoshiPerBitcoin
+	isOurAddress := make(map[string]bool)
 	txids := make(map[chainhash.Hash]struct{})
 	for i := 0; i < numTxns; i++ {
 		addr, err := alice.NewAddress(
@@ -1149,6 +1150,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		if err != nil {
 			t.Fatalf("unable to create new address: %v", err)
 		}
+		isOurAddress[addr.EncodeAddress()] = true
 		script, err := txscript.PayToAddrScript(addr)
 		if err != nil {
 			t.Fatalf("unable to create output script: %v", err)
@@ -1245,20 +1247,27 @@ func testListTransactionDetails(miner *rpctest.Harness,
 			t.Fatalf("tx (%v) not found in block (%v)",
 				txDetail.Hash, txDetail.BlockHash)
 		} else {
-			var destinationAddresses []btcutil.Address
+			var destinationOutputs []lnwallet.OutputDetail
 
-			for _, txOut := range txOuts {
-				_, addrs, _, err :=
+			for i, txOut := range txOuts {
+				sc, addrs, _, err :=
 					txscript.ExtractPkScriptAddrs(txOut.PkScript, &alice.Cfg.NetParams)
 				if err != nil {
 					t.Fatalf("err extract script addresses: %s", err)
 				}
-				destinationAddresses = append(destinationAddresses, addrs...)
+				destinationOutputs = append(destinationOutputs, lnwallet.OutputDetail{
+					OutputType:   sc,
+					Addresses:    addrs,
+					PkScript:     txOut.PkScript,
+					OutputIndex:  i,
+					Value:        btcutil.Amount(txOut.Value),
+					IsOurAddress: isOurAddress[addrs[0].EncodeAddress()],
+				})
 			}
 
-			if !reflect.DeepEqual(txDetail.DestAddresses, destinationAddresses) {
-				t.Fatalf("destination addresses mismatch, got %v expected %v",
-					txDetail.DestAddresses, destinationAddresses)
+			if !reflect.DeepEqual(txDetail.OutputDetails, destinationOutputs) {
+				t.Fatalf("destination outputs mismatch, got %v expected %v",
+					txDetail.OutputDetails, destinationOutputs)
 			}
 		}
 
@@ -1330,10 +1339,12 @@ func testListTransactionDetails(miner *rpctest.Harness,
 		// that even when we have 0 confirmation transactions, the destination
 		// addresses are returned.
 		var match bool
-		for _, addr := range txDetail.DestAddresses {
-			if addr.String() == minerAddr.String() {
-				match = true
-				break
+		for _, o := range txDetail.OutputDetails {
+			for _, addr := range o.Addresses {
+				if addr.String() == minerAddr.String() {
+					match = true
+					break
+				}
 			}
 		}
 		if !match {

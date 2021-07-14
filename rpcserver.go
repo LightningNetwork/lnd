@@ -5033,9 +5033,34 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 	for {
 		select {
 		case tx := <-txClient.ConfirmedTransactions():
-			destAddresses := make([]string, 0, len(tx.DestAddresses))
-			for _, destAddress := range tx.DestAddresses {
-				destAddresses = append(destAddresses, destAddress.EncodeAddress())
+			var destAddresses []string
+			outputDetails := make([]*lnrpc.OutputDetail, 0,
+				len(tx.OutputDetails))
+			for _, o := range tx.OutputDetails {
+				// Note: DestAddresses is deprecated but we keep
+				// populating it with addresses for backwards
+				// compatibility.
+				for _, a := range o.Addresses {
+					destAddresses = append(destAddresses,
+						a.EncodeAddress())
+				}
+
+				var address string
+				if len(o.Addresses) == 1 {
+					address = o.Addresses[0].EncodeAddress()
+				}
+
+				outTy := lnrpc.MarshallOutputType(o.OutputType)
+				pkScript := hex.EncodeToString(o.PkScript)
+				out := lnrpc.OutputDetail{
+					OutputType:   outTy,
+					Address:      address,
+					PkScript:     pkScript,
+					OutputIndex:  int64(o.OutputIndex),
+					Amount:       int64(o.Value),
+					IsOurAddress: o.IsOurAddress,
+				}
+				outputDetails = append(outputDetails, &out)
 			}
 			detail := &lnrpc.Transaction{
 				TxHash:           tx.Hash.String(),
@@ -5046,6 +5071,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 				TimeStamp:        tx.Timestamp,
 				TotalFees:        tx.TotalFees,
 				DestAddresses:    destAddresses,
+				OutputDetails:    outputDetails,
 				RawTxHex:         hex.EncodeToString(tx.RawTx),
 			}
 			if err := updateStream.Send(detail); err != nil {
@@ -5054,8 +5080,33 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 
 		case tx := <-txClient.UnconfirmedTransactions():
 			var destAddresses []string
-			for _, destAddress := range tx.DestAddresses {
-				destAddresses = append(destAddresses, destAddress.EncodeAddress())
+			outputDetails := make([]*lnrpc.OutputDetail, 0,
+				len(tx.OutputDetails))
+			for _, o := range tx.OutputDetails {
+				// Note: DestAddresses is deprecated but we keep
+				// populating it with addresses for backwards
+				// compatibility.
+				for _, a := range o.Addresses {
+					destAddresses = append(destAddresses,
+						a.EncodeAddress())
+				}
+
+				var address string
+				if len(o.Addresses) == 1 {
+					address = o.Addresses[0].EncodeAddress()
+				}
+
+				outTy := lnrpc.MarshallOutputType(o.OutputType)
+				pkScript := hex.EncodeToString(o.PkScript)
+				out := lnrpc.OutputDetail{
+					OutputType:   outTy,
+					Address:      address,
+					PkScript:     pkScript,
+					OutputIndex:  int64(o.OutputIndex),
+					Amount:       int64(o.Value),
+					IsOurAddress: o.IsOurAddress,
+				}
+				outputDetails = append(outputDetails, &out)
 			}
 			detail := &lnrpc.Transaction{
 				TxHash:        tx.Hash.String(),
@@ -5063,6 +5114,7 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 				TimeStamp:     tx.Timestamp,
 				TotalFees:     tx.TotalFees,
 				DestAddresses: destAddresses,
+				OutputDetails: outputDetails,
 				RawTxHex:      hex.EncodeToString(tx.RawTx),
 			}
 			if err := updateStream.Send(detail); err != nil {
