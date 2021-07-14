@@ -328,7 +328,7 @@ production), outside of `docker-compose`, see the
 [docker docs](../docs/DOCKER.md).
 
 ### Questions
-[![Irc](https://img.shields.io/badge/chat-on%20freenode-brightgreen.svg)](https://webchat.freenode.net/?channels=lnd)
+[![Irc](https://img.shields.io/badge/chat-on%20libera-brightgreen.svg)](https://web.libera.chat/#lnd)
 
 * How to see `alice` | `bob` | `btcd` logs?
 ```shell
