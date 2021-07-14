@@ -70,6 +70,7 @@ func (m *mockPreimageCache) SubscribeUpdates() *contractcourt.WitnessSubscriptio
 
 type mockFeeEstimator struct {
 	byteFeeIn chan chainfee.SatPerKWeight
+	relayFee  chan chainfee.SatPerKWeight
 
 	quit chan struct{}
 }
@@ -77,6 +78,7 @@ type mockFeeEstimator struct {
 func newMockFeeEstimator() *mockFeeEstimator {
 	return &mockFeeEstimator{
 		byteFeeIn: make(chan chainfee.SatPerKWeight),
+		relayFee:  make(chan chainfee.SatPerKWeight),
 		quit:      make(chan struct{}),
 	}
 }
@@ -93,7 +95,12 @@ func (m *mockFeeEstimator) EstimateFeePerKW(
 }
 
 func (m *mockFeeEstimator) RelayFeePerKW() chainfee.SatPerKWeight {
-	return 1e3
+	select {
+	case feeRate := <-m.relayFee:
+		return feeRate
+	case <-m.quit:
+		return 0
+	}
 }
 
 func (m *mockFeeEstimator) Start() error {

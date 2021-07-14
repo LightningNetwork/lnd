@@ -7,6 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/btcsuite/btcutil"
 )
@@ -232,4 +235,48 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockChainBackend struct {
+	minRelayFee SatPerKWeight
+	callCount   int
+}
+
+func (m *mockChainBackend) fetchFee() (SatPerKWeight, error) {
+	m.callCount++
+	return m.minRelayFee, nil
+}
+
+// TestMinRelayFeeManager tests that the minRelayFeeManager works as expected.
+func TestMinRelayFeeManager(t *testing.T) {
+	chainBackend := &mockChainBackend{
+		minRelayFee: SatPerKWeight(1000),
+	}
+
+	feeManager := &minRelayFeeManager{
+		minUpdateInterval: 200 * time.Millisecond,
+		fetchNewFee:       chainBackend.fetchFee,
+	}
+
+	// Init the min relay fee manager. This should call the chain backend
+	// once.
+	err := feeManager.initMinRelayFee()
+	require.NoError(t, err)
+	require.Equal(t, 1, chainBackend.callCount)
+
+	// If the fee is requested again, the stored fee should be returned
+	// and the chain backend should not be queried.
+	chainBackend.minRelayFee = SatPerKWeight(2000)
+	minRelayFee := feeManager.getFee()
+	require.Equal(t, minRelayFee, SatPerKWeight(1000))
+	require.Equal(t, 1, chainBackend.callCount)
+
+	time.Sleep(500 * time.Millisecond)
+
+	// If the fee is queried again after the backoff period has passed
+	// then the chain backend should be queried again for the min relay
+	// fee.
+	minRelayFee = feeManager.getFee()
+	require.Equal(t, minRelayFee, SatPerKWeight(2000))
+	require.Equal(t, 2, chainBackend.callCount)
 }
