@@ -27,7 +27,7 @@ Developing cryptocurrencies is an exciting endeavor that touches a wide variety
 of areas such as wire protocols, peer-to-peer networking, databases,
 cryptography, language interpretation (transaction scripts), adversarial
 threat-modeling, and RPC systems. They also represent a radical shift to the
-current fiscal system and as a result provide an opportunity to help reshape
+current monetary system and as a result provide an opportunity to help reshape
 the entire financial system. With the advent of the [Lightning Network
 (LN)](https://lightning.network/), new layers are being constructed upon the
 base blockchain layer which have the potential to alleviate many of the
@@ -476,7 +476,7 @@ adhering to the 80-character column limit.
 
 It's common that a developer may need to make a change in a dependent project
 of `lnd` such as `btcd`, `neutrino`, `btcwallet`, etc. In order to test changes
-with out testing infrastructure, or simply make a PR into `lnd` that will build
+without testing infrastructure, or simply make a PR into `lnd` that will build
 without any further work, the `go.mod` and `go.sum` files will need to be
 updated. Luckily, the `go mod` command has a handy tool to do this
 automatically so developers don't need to manually edit the `go.mod` file:
