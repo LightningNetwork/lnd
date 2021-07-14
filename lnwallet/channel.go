@@ -4936,26 +4936,16 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 // channel. We don't have a value or circuit for this htlc, because we just
 // want to test that we have slots for a potential htlc so we use a "mock"
 // htlc to validate a potential commitment state with one more outgoing htlc.
-func (lc *LightningChannel) MayAddOutgoingHtlc() error {
+func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 	lc.Lock()
 	defer lc.Unlock()
 
-	// As this is a mock HTLC, we'll attempt to add the smallest possible
-	// HTLC permitted in the channel. However certain implementations may
-	// set this value to zero, so we'll catch that and increment things so
-	// we always use a non-zero value.
-	mockHtlcAmt := lc.channelState.LocalChanCfg.MinHTLC
-	if mockHtlcAmt == 0 {
-		mockHtlcAmt++
-	}
-
-	// Create a "mock" outgoing htlc, using the smallest amount we can add
-	// to the commitment so that we validate commitment slots rather than
-	// available balance, since our actual htlc amount is unknown at this
-	// stage.
+	// Create a "mock" outgoing htlc with the amount provided, we do not
+	// add a zero check here because we expect sane callers to add non-zero
+	// htlc amounts.
 	pd := lc.htlcAddDescriptor(
 		&lnwire.UpdateAddHTLC{
-			Amount: mockHtlcAmt,
+			Amount: amt,
 		},
 		&channeldb.CircuitKey{},
 	)

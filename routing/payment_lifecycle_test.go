@@ -472,7 +472,9 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			Payer:              payer,
 			ChannelPruneExpiry: time.Hour * 24,
 			GraphPruneInterval: time.Hour * 2,
-			QueryBandwidth: func(e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+			QueryBandwidth: func(e *channeldb.ChannelEdgeInfo,
+				_ *lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
 				return lnwire.NewMSatFromSatoshis(e.Capacity)
 			},
 			NextPaymentID: func() (uint64, error) {

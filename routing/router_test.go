@@ -127,8 +127,8 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	sessionSource := &SessionSource{
 		Graph: graphInstance.graph,
-		QueryBandwidth: func(
-			e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo,
+			_ *lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},
@@ -146,8 +146,8 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		SessionSource:      sessionSource,
 		ChannelPruneExpiry: time.Hour * 24,
 		GraphPruneInterval: time.Hour * 2,
-		QueryBandwidth: func(
-			e *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+		QueryBandwidth: func(e *channeldb.ChannelEdgeInfo,
+			_ *lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 			return lnwire.NewMSatFromSatoshis(e.Capacity)
 		},
@@ -2441,7 +2441,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// the edge weighting, we should select the direct path over the 2 hop
 	// path even though the direct path has a higher potential time lock.
 	path, err := dbFindPath(
-		ctx.graph, nil, nil,
+		ctx.graph, nil, &mockBandwidthHints{},
 		noRestrictions,
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, amt, 0,

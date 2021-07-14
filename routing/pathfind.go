@@ -282,14 +282,14 @@ type graphParams struct {
 	// channel graph.
 	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
 
-	// bandwidthHints is an optional map from channels to bandwidths that
-	// can be populated if the caller has a better estimate of the current
-	// channel bandwidth than what is found in the graph. If set, it will
-	// override the capacities and disabled flags found in the graph for
-	// local channels when doing path finding. In particular, it should be
-	// set to the current available sending bandwidth for active local
-	// channels, and 0 for inactive channels.
-	bandwidthHints map[uint64]lnwire.MilliSatoshi
+	// bandwidthHints is an interface that provides bandwidth hints that
+	// can provide a better estimate of the current channel bandwidth than
+	// what is found in the graph. It will override the capacities and
+	// disabled flags found in the graph for local channels when doing
+	// path finding if it has updated values for that channel. In
+	// particular, it should be set to the current available sending
+	// bandwidth for active local channels, and 0 for inactive channels.
+	bandwidthHints bandwidthHints
 }
 
 // RestrictParams wraps the set of restrictions passed to findPath that the
@@ -355,8 +355,8 @@ type PathFindingConfig struct {
 // channels of the given node. The second return parameters is the total
 // available balance.
 func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
-	bandwidthHints map[uint64]lnwire.MilliSatoshi,
-	g routingGraph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+	bandwidthHints bandwidthHints, g routingGraph) (
+	lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
 	cb := func(edgeInfo *channeldb.ChannelEdgeInfo, outEdge,
@@ -375,7 +375,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 			}
 		}
 
-		bandwidth, ok := bandwidthHints[chanID]
+		bandwidth, ok := bandwidthHints.availableChanBandwidth(chanID)
 
 		// If the bandwidth is not available, use the channel capacity.
 		// This can happen when a channel is added to the graph after

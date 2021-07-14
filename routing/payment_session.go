@@ -164,7 +164,7 @@ type PaymentSession interface {
 type paymentSession struct {
 	additionalEdges map[route.Vertex][]*channeldb.ChannelEdgePolicy
 
-	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error)
+	getBandwidthHints func() (bandwidthHints, error)
 
 	payment *LightningPayment
 
@@ -192,7 +192,7 @@ type paymentSession struct {
 
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment,
-	getBandwidthHints func() (map[uint64]lnwire.MilliSatoshi, error),
+	getBandwidthHints func() (bandwidthHints, error),
 	getRoutingGraph func() (routingGraph, func(), error),
 	missionControl MissionController, pathFindingConfig PathFindingConfig) (
 	*paymentSession, error) {
