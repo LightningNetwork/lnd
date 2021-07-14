@@ -14,6 +14,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/urfave/cli"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -668,7 +670,35 @@ func fundPsbt(ctx *cli.Context) error {
 
 	response, err := walletClient.FundPsbt(ctxc, req)
 	if err != nil {
-		return err
+		// For specific errors within FundPsbt print json parsable errors
+		st := status.Convert(err)
+		for _, detail := range st.Details() {
+			switch t := detail.(type) {
+			// Thrown if user supplied transaction inputs are not found
+			case *errdetails.BadRequest:
+				for _, violation := range t.GetFieldViolations() {
+					printJSON(struct {
+						Message      string `json:"message"`
+						MissingIndex string `json:"missing_index"`
+					}{
+						Message:      fmt.Sprintf("%v", violation.GetDescription()),
+						MissingIndex: fmt.Sprintf("%v", violation.GetField()),
+					})
+				}
+			// Thrown if insufficient funds prevented PSBT funding
+			case *errdetails.PreconditionFailure:
+				for _, violation := range t.GetViolations() {
+					printJSON(struct {
+						Type        string `json:"type"`
+						Description string `json:"description"`
+					}{
+						Type:        fmt.Sprintf("%v", violation.GetType()),
+						Description: fmt.Sprintf("%v", violation.GetType()),
+					})
+				}
+			}
+		}
+		return nil
 	}
 
 	jsonLocks := marshallLocks(response.LockedUtxos)

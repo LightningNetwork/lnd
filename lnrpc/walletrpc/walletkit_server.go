@@ -33,7 +33,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
+	errdetails "google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -1119,7 +1122,18 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			packet, feeSatPerKW, account,
 		)
 		if err != nil {
-			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
+			st := status.New(codes.Unknown, ErrUnableToFund(err).Error())
+			details := &errdetails.ErrorInfo{
+				Domain: fmt.Sprintf("%v", "PSBT"),
+				Metadata: map[string]string{
+					"reason": fmt.Sprintf("%v", err),
+				},
+			}
+			st, err := st.WithDetails(details)
+			if err != nil {
+				panic(fmt.Sprintf("Unexpected error attaching metadata: %v", err))
+			}
+			return st.Err()
 		}
 
 		// Make sure we can properly serialize the packet. If this goes

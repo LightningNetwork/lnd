@@ -11,6 +11,9 @@ import (
 	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -36,11 +39,22 @@ func verifyInputsUnspent(inputs []*wire.TxIn, utxos []*lnwallet.Utxo) error {
 		}
 
 		if !found {
-			return fmt.Errorf("input %d not found in list of non-"+
-				"locked UTXO", idx)
+			// If an input isn't found in the list of known, non-locked UTXOs, a
+			// structured error message is returned with the missing index info
+			st := status.New(codes.NotFound, ErrUnspentInputNotFound(idx).Error())
+			v := &errdetails.BadRequest_FieldViolation{
+				Field:       fmt.Sprintf("%v", idx),
+				Description: ErrUnspentInputNotFound(idx).Error(),
+			}
+			br := &errdetails.BadRequest{}
+			br.FieldViolations = append(br.FieldViolations, v)
+			st, err := st.WithDetails(br)
+			if err != nil {
+				panic(fmt.Sprintf("Unexpected error attaching metadata: %v", err))
+			}
+			return st.Err()
 		}
 	}
-
 	return nil
 }
 

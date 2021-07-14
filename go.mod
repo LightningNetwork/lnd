@@ -19,7 +19,7 @@ require (
 	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/go-errors/errors v1.0.1
 	github.com/go-openapi/strfmt v0.19.5 // indirect
-	github.com/golang/protobuf v1.4.3
+	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.0.1-0.20190118093823-f849b5445de4
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
@@ -55,10 +55,11 @@ require (
 	github.com/urfave/cli v1.20.0
 	go.etcd.io/etcd v3.4.14+incompatible
 	golang.org/x/crypto v0.0.0-20200709230013-948cd5f35899
-	golang.org/x/net v0.0.0-20200520004742-59133d7f0dd7
+	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
-	google.golang.org/grpc v1.29.1
-	google.golang.org/protobuf v1.23.0
+	google.golang.org/genproto v0.0.0-20210701191553-46259e63a0a9 // indirect
+	google.golang.org/grpc v1.38.0
+	google.golang.org/protobuf v1.27.1
 	gopkg.in/errgo.v1 v1.0.1 // indirect
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
