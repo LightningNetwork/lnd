@@ -726,7 +726,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		// this amount. If not, we return a 0 bandwidth because the
 		// link is unusable for this htlc.
 		if amount != nil {
-			err := link.MayAddOutgoingHtlc()
+			err := link.MayAddOutgoingHtlc(*amount)
 			if err != nil {
 				return 0
 			}

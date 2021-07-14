@@ -749,15 +749,15 @@ func (f *mockChannelLink) Start() error {
 	return nil
 }
 
-func (f *mockChannelLink) ChanID() lnwire.ChannelID                     { return f.chanID }
-func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID           { return f.shortChanID }
-func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi               { return 99999999 }
-func (f *mockChannelLink) Peer() lnpeer.Peer                            { return f.peer }
-func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return &wire.OutPoint{} }
-func (f *mockChannelLink) Stop()                                        {}
-func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
-func (f *mockChannelLink) MayAddOutgoingHtlc() error                    { return nil }
-func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }
+func (f *mockChannelLink) ChanID() lnwire.ChannelID                       { return f.chanID }
+func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID             { return f.shortChanID }
+func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi                 { return 99999999 }
+func (f *mockChannelLink) Peer() lnpeer.Peer                              { return f.peer }
+func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                   { return &wire.OutPoint{} }
+func (f *mockChannelLink) Stop()                                          {}
+func (f *mockChannelLink) EligibleToForward() bool                        { return f.eligible }
+func (f *mockChannelLink) MayAddOutgoingHtlc(_ lnwire.MilliSatoshi) error { return nil }
+func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID)   { f.shortChanID = sid }
 func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	f.eligible = true
 	return f.shortChanID, nil
