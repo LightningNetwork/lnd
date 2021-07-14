@@ -116,20 +116,6 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	return newReadWriteBucket(b.tx, bucketKey, bucketVal)
 }
 
-// assertNoValue checks if the value for the passed key exists.
-func (b *readWriteBucket) assertNoValue(key []byte) error {
-	val, err := b.tx.stm.Get(string(makeValueKey(b.id, key)))
-	if err != nil {
-		return err
-	}
-
-	if val != nil {
-		return walletdb.ErrIncompatibleValue
-	}
-
-	return nil
-}
-
 // CreateBucket creates and returns a new nested bucket with the given
 // key. Returns ErrBucketExists if the bucket already exists,
 // ErrBucketNameRequired if the key is empty, or ErrIncompatibleValue
@@ -153,10 +139,6 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 
 	if isValidBucketID(bucketVal) {
 		return nil, walletdb.ErrBucketExists
-	}
-
-	if err := b.assertNoValue(key); err != nil {
-		return nil, err
 	}
 
 	// Create a deterministic bucket id from the bucket key.
@@ -189,10 +171,6 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 	}
 
 	if !isValidBucketID(bucketVal) {
-		if err := b.assertNoValue(key); err != nil {
-			return nil, err
-		}
-
 		newID := makeBucketID(bucketKey)
 		b.tx.stm.Put(string(bucketKey), string(newID[:]))
 
@@ -272,15 +250,6 @@ func (b *readWriteBucket) Put(key, value []byte) error {
 		return walletdb.ErrKeyRequired
 	}
 
-	val, err := b.tx.stm.Get(string(makeBucketKey(b.id, key)))
-	if err != nil {
-		return err
-	}
-
-	if val != nil {
-		return walletdb.ErrIncompatibleValue
-	}
-
 	// Update the transaction with the new value.
 	b.tx.stm.Put(string(makeValueKey(b.id, key)), string(value))
 
@@ -353,4 +322,57 @@ func (b *readWriteBucket) Sequence() uint64 {
 	num, _ := strconv.ParseUint(string(val), 10, 64)
 
 	return num
+}
+
+func (b *readWriteBucket) rangeKey(buckets ...string) string {
+	parent := b.id
+
+	for _, bucketName := range buckets {
+		bucketKey := makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(parent)
+}
+
+func (b *readWriteBucket) bucketKey(buckets ...string) string {
+	var bucketKey []byte
+	parent := b.id
+
+	for _, bucketName := range buckets {
+		bucketKey = makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(bucketKey)
+}
+
+func (b *readWriteBucket) valueKey(key string, buckets ...string) string {
+	parent := b.id
+
+	for _, bucketName := range buckets {
+		bucketKey := makeBucketKey(parent, []byte(bucketName))
+		id := makeBucketID(bucketKey)
+		parent = id[:]
+	}
+
+	return string(makeValueKey(parent, []byte(key)))
+}
+
+func (b *readWriteBucket) RangeKey(buckets ...string) string {
+	return b.rangeKey(buckets...)
+}
+
+func (b *readWriteBucket) BucketKey(buckets ...string) string {
+	return b.bucketKey(buckets...)
+}
+
+func (b *readWriteBucket) ValueKey(key string, buckets ...string) string {
+	return b.valueKey(key, buckets...)
+}
+
+func (b *readWriteBucket) Prefetch(keys []string, ranges []string) {
+	b.tx.stm.Prefetch(keys, ranges)
 }

@@ -2,8 +2,10 @@ package routing
 
 import (
 	"bytes"
+	"container/list"
 	"encoding/binary"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -35,7 +37,12 @@ const (
 // Also changes to mission control parameters can be applied to historical data.
 // Finally, it enables importing raw data from an external source.
 type missionControlStore struct {
+	done       chan struct{}
+	wg         sync.WaitGroup
 	db         kvdb.Backend
+	queueMx    sync.Mutex
+	queue      *list.List
+	keys       *list.List
 	maxRecords int
 	numRecords int
 }
@@ -43,6 +50,7 @@ type missionControlStore struct {
 func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlStore, error) {
 	var store *missionControlStore
 
+	keys := list.New()
 	// Create buckets if not yet existing.
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		resultsBucket, err := tx.CreateTopLevelBucket(resultsKey)
@@ -58,12 +66,16 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlSto
 		c := resultsBucket.ReadCursor()
 		for k, _ := c.First(); k != nil; k, _ = c.Next() {
 			store.numRecords++
+			keys.PushBack(k)
 		}
 
 		return nil
 	}, func() {
 		store = &missionControlStore{
+			done:       make(chan struct{}),
 			db:         db,
+			queue:      list.New(),
+			keys:       keys,
 			maxRecords: maxRecords,
 		}
 	})
@@ -76,6 +88,10 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int) (*missionControlSto
 
 // clear removes all results from the db.
 func (b *missionControlStore) clear() error {
+	b.queueMx.Lock()
+	defer b.queueMx.Unlock()
+	b.queue = list.New()
+
 	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
 		if err := tx.DeleteTopLevelBucket(resultsKey); err != nil {
 			return err
@@ -222,38 +238,103 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 
 // AddResult adds a new result to the db.
 func (b *missionControlStore) AddResult(rp *paymentResult) error {
-	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(resultsKey)
+	b.queueMx.Lock()
+	defer b.queueMx.Unlock()
+	b.queue.PushBack(rp)
 
-		// Prune oldest entries.
-		if b.maxRecords > 0 {
-			for b.numRecords >= b.maxRecords {
-				cursor := bucket.ReadWriteCursor()
-				cursor.First()
-				if err := cursor.Delete(); err != nil {
-					return err
+	return nil
+}
+
+// StopTicker stops the store goroutine.
+func (b *missionControlStore) StopTicker() {
+	close(b.done)
+	b.wg.Wait()
+}
+
+// RunTicker runs the store goroutine.
+func (b *missionControlStore) RunTicker() {
+	b.wg.Add(1)
+
+	go func() {
+		// TODO(bhandras): test multiple timeframes.
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		defer b.wg.Done()
+
+		for {
+			select {
+			case <-ticker.C:
+				if err := b.storeResults(); err != nil {
+					log.Errorf("Failed to update mission "+
+						"control store: %v", err)
 				}
 
-				b.numRecords--
+			case <-b.done:
+				return
+			}
+		}
+	}()
+}
+
+// storeResults stores all accumlated results.
+func (b *missionControlStore) storeResults() error {
+	b.queueMx.Lock()
+	l := b.queue
+	b.queue = list.New()
+	b.queueMx.Unlock()
+
+	var numRecords, maxRecords int
+
+	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+		bucket := tx.ReadWriteBucket(resultsKey)
+
+		for e := l.Front(); e != nil; e = e.Next() {
+			pr := e.Value.(*paymentResult)
+			// Serialize result into key and value byte slices.
+			k, v, err := serializeResult(pr)
+			if err != nil {
+				return err
+			}
+
+			// The store is assumed to be idempotent. It could be
+			// that the same result is added twice and in that case
+			// the counter shouldn't be increased.
+			// TODO(bhandras): this is an extra fetch that should
+			// be eliminated if possible.
+			if bucket.Get(k) != nil {
+				continue
+			}
+
+			b.keys.PushBack(k)
+			// Put into results bucket.
+			if err := bucket.Put(k, v); err != nil {
+				return err
 			}
 		}
 
-		// Serialize result into key and value byte slices.
-		k, v, err := serializeResult(rp)
-		if err != nil {
-			return err
+		// Prune oldest entries.
+		for {
+			if maxRecords == 0 || b.keys.Len() <= maxRecords {
+				break
+			}
+
+			key := b.keys.Remove(b.keys.Front()).([]byte)
+			if err := bucket.Delete(key); err != nil {
+				return err
+			}
 		}
 
-		// The store is assumed to be idempotent. It could be that the
-		// same result is added twice and in that case the counter
-		// shouldn't be increased.
-		if bucket.Get(k) == nil {
-			b.numRecords++
-		}
+		return nil
+	}, func() {
+		maxRecords = b.maxRecords
+	})
 
-		// Put into results bucket.
-		return bucket.Put(k, v)
-	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	b.numRecords = numRecords
+	return nil
 }
 
 // getResultKey returns a byte slice representing a unique key for this payment

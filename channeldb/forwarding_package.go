@@ -421,18 +421,30 @@ func NewChannelPackager(source lnwire.ShortChannelID) *ChannelPackager {
 
 // AddFwdPkg writes a newly locked in forwarding package to disk.
 func (*ChannelPackager) AddFwdPkg(tx kvdb.RwTx, fwdPkg *FwdPkg) error { // nolint: dupl
+	source := makeLogKey(fwdPkg.Source.ToUint64())
+	heightKey := makeLogKey(fwdPkg.Height)
+
+	rb := kvdb.RootBucket(tx)
+	kvdb.Prefetch(rb,
+		[]string{
+			kvdb.BucketKey(rb, string(fwdPackagesKey)),
+			kvdb.BucketKey(rb, string(fwdPackagesKey), string(source[:])),
+			kvdb.BucketKey(rb, string(fwdPackagesKey), string(source[:]), string(heightKey[:])),
+			kvdb.BucketKey(rb, string(fwdPackagesKey), string(source[:]), string(heightKey[:]), string(addBucketKey)),
+			kvdb.BucketKey(rb, string(fwdPackagesKey), string(source[:]), string(heightKey[:]), string(failSettleBucketKey)),
+		},
+		nil,
+	)
 	fwdPkgBkt, err := tx.CreateTopLevelBucket(fwdPackagesKey)
 	if err != nil {
 		return err
 	}
 
-	source := makeLogKey(fwdPkg.Source.ToUint64())
 	sourceBkt, err := fwdPkgBkt.CreateBucketIfNotExists(source[:])
 	if err != nil {
 		return err
 	}
 
-	heightKey := makeLogKey(fwdPkg.Height)
 	heightBkt, err := sourceBkt.CreateBucketIfNotExists(heightKey[:])
 	if err != nil {
 		return err

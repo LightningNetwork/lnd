@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	v3 "go.etcd.io/etcd/clientv3"
+	pb "go.etcd.io/etcd/etcdserver/etcdserverpb"
 )
 
 type CommitStats struct {
@@ -71,9 +72,13 @@ type STM interface {
 	// Commit may return CommitError if transaction is outdated and needs retry.
 	Commit() error
 
-	// Rollback emties the read and write sets such that a subsequent commit
+	// Rollback entries the read and write sets such that a subsequent commit
 	// won't alter the database.
 	Rollback()
+
+	// Prefetch prefetches the passed keys and prefixes. For prefixes it'll
+	// fetch the whole range.
+	Prefetch(keys []string, prefix []string)
 }
 
 // CommitError is used to check if there was an error
@@ -104,15 +109,24 @@ func (e DatabaseError) Error() string {
 	return fmt.Sprintf("etcd error: %v - %v", e.msg, e.err)
 }
 
-// stmGet is the result of a read operation,
-// a value and the mod revision of the key/value.
+// stmGet is the result of a read operation, a value and the mod revision of the
+// key/value.
 type stmGet struct {
-	val string
+	KV
 	rev int64
 }
 
 // readSet stores all reads done in an STM.
-type readSet map[string]stmGet
+type readSet struct {
+	// index maps keys to indexes of the "items" slice.
+	index map[string]int
+
+	// items stroes the actual stmGet values.
+	items []stmGet
+
+	// fullRanges stores the indexes for prefetched prefixes.
+	fullRanges map[string][]int
+}
 
 // stmPut stores a value and an operation (put/delete).
 type stmPut struct {
@@ -141,9 +155,6 @@ type stm struct {
 	// options stores optional settings passed by the user.
 	options *STMOptions
 
-	// prefetch hold prefetched key values and revisions.
-	prefetch readSet
-
 	// rset holds read key values and revisions.
 	rset readSet
 
@@ -158,6 +169,9 @@ type stm struct {
 
 	// onCommit gets called upon commit.
 	onCommit func()
+
+	// callCount tracks the number of times we called into etcd.
+	callCount int
 }
 
 // STMOptions can be used to pass optional settings
@@ -188,9 +202,12 @@ func WithCommitStatsCallback(cb func(bool, CommitStats)) STMOptionFunc {
 // RunSTM runs the apply function by creating an STM using serializable snapshot
 // isolation, passing it to the apply and handling commit errors and retries.
 func RunSTM(cli *v3.Client, apply func(STM) error, txQueue *commitQueue,
-	so ...STMOptionFunc) error {
+	so ...STMOptionFunc) (int, error) {
 
-	return runSTM(makeSTM(cli, false, txQueue, so...), apply)
+	stm := makeSTM(cli, false, txQueue, so...)
+	err := runSTM(stm, apply)
+
+	return stm.callCount, err
 }
 
 // NewSTM creates a new STM instance, using serializable snapshot isolation.
@@ -213,15 +230,14 @@ func makeSTM(cli *v3.Client, manual bool, txQueue *commitQueue,
 	}
 
 	s := &stm{
-		client:   cli,
-		manual:   manual,
-		txQueue:  txQueue,
-		options:  opts,
-		prefetch: make(map[string]stmGet),
+		client:  cli,
+		manual:  manual,
+		txQueue: txQueue,
+		options: opts,
 	}
 
 	// Reset read and write set.
-	s.Rollback()
+	s.reset(true)
 
 	return s
 }
@@ -262,8 +278,11 @@ func runSTM(s *stm, apply func(STM) error) error {
 				return
 			}
 
-			// Rollback before trying to re-apply.
-			s.Rollback()
+			// Reset the write set before trying to re-apply. Upon
+			// commit we retrieved the latest version of all
+			// previously fetched keys and ranges so we don't need
+			// to reset the read set.
+			s.reset(false)
 			retries++
 
 			// Re-apply the transaction closure.
@@ -280,16 +299,35 @@ func runSTM(s *stm, apply func(STM) error) error {
 		return preApplyErr
 	}
 
+	// Make a copy of the read/write set keys here. The reason why we need
+	// to do this is because subsequent applies may change (shrink) these
+	// sets and so when we decrease reference counts in the commit queue in
+	// done(...) we'd potentially miss removing references which would
+	// result in queueing up transactions and contending DB access.
+	// Copying these strings is cheap due to Go's immutable string which is
+	// always a reference.
+	rkeys := make([]string, len(s.rset.index))
+	wkeys := make([]string, len(s.wset))
+
+	for i := range s.rset.items {
+		rkeys[i] = s.rset.items[i].key
+	}
+
+	i := 0
+	for key := range s.wset {
+		wkeys[i] = key
+		i++
+	}
+
 	// Queue up the transaction for execution.
-	s.txQueue.Add(execute, s.rset, s.wset)
+	s.txQueue.Add(execute, rkeys, wkeys)
 
 	// Wait for the transaction to execute, or break if aborted.
 	select {
 	case <-done:
 	case <-s.options.ctx.Done():
+		return context.Canceled
 	}
-
-	s.txQueue.Done(s.rset, s.wset)
 
 	if s.options.commitStatsCallback != nil {
 		stats.Retries = retries
@@ -299,41 +337,204 @@ func runSTM(s *stm, apply func(STM) error) error {
 	return executeErr
 }
 
-// add inserts a txn response to the read set. This is useful when the txn
-// fails due to conflict where the txn response can be used to prefetch
-// key/values.
-func (rs readSet) add(txnResp *v3.TxnResponse) {
-	for _, resp := range txnResp.Responses {
+func newReadSet() *readSet {
+	return &readSet{
+		index:      make(map[string]int),
+		fullRanges: make(map[string][]int),
+	}
+}
+
+// add inserts key/values to to read set.
+func (rs *readSet) add(responses []*pb.ResponseOp) {
+	for _, resp := range responses {
 		getResp := (*v3.GetResponse)(resp.GetResponseRange())
 		for _, kv := range getResp.Kvs {
-			rs[string(kv.Key)] = stmGet{
-				val: string(kv.Value),
-				rev: kv.ModRevision,
-			}
+			rs.addItem(
+				string(kv.Key), string(kv.Value), kv.ModRevision,
+			)
 		}
 	}
 }
 
-// gets is a helper to create an op slice for transaction
-// construction.
-func (rs readSet) gets() []v3.Op {
-	ops := make([]v3.Op, 0, len(rs))
+// addFullRange adds all full ranges to the read set.
+func (rs *readSet) addFullRange(prefixes []string, responses []*pb.ResponseOp) {
+	for i, resp := range responses {
+		getResp := (*v3.GetResponse)(resp.GetResponseRange())
+		indexes := make([]int, len(getResp.Kvs))
+		for i, kv := range getResp.Kvs {
+			indexes[i] = rs.addItem(
+				string(kv.Key), string(kv.Value), kv.ModRevision,
+			)
+		}
 
-	for k := range rs {
-		ops = append(ops, v3.OpGet(k))
+		rs.fullRanges[prefixes[i]] = indexes
+	}
+}
+
+// presetItem presets a key to zero revision if not already present in the read
+// set.
+func (rs *readSet) presetItem(key string) {
+	if _, ok := rs.index[key]; !ok {
+		idx := len(rs.items)
+		rs.index[key] = idx
+		rs.items = append(rs.items, stmGet{
+			KV: KV{
+				key: key,
+			},
+			rev: 0,
+		})
+	}
+}
+
+// addItem adds a single new key/value to the read set (if not already present).
+func (rs *readSet) addItem(key, val string, modRevision int64) int {
+	// If the key is already present, simply overwrite it.
+	if idx, ok := rs.index[key]; ok {
+		rs.items[idx] = stmGet{
+			KV: KV{
+				key: key,
+				val: val,
+			},
+			rev: modRevision,
+		}
+
+		return idx
+	}
+
+	// If not present, add it to the read set.
+	idx := len(rs.items)
+	rs.index[key] = idx
+	rs.items = append(rs.items, stmGet{
+		KV: KV{
+			key: key,
+			val: val,
+		},
+		rev: modRevision,
+	})
+	return idx
+}
+
+// hasFullRange checks if the read set has a full range prefetched.
+func (rs *readSet) hasFullRange(prefix string) bool {
+	if _, ok := rs.fullRanges[prefix]; ok {
+		return true
+	}
+
+	return false
+}
+
+// next returns the pre-fetched next value of the prefix. If matchKey is true,
+// it'll simply return the key/value that matches the passed key.
+func (rs *readSet) next(prefix, key string, matchKey bool) (*stmGet, bool) {
+	if prefixRange, ok := rs.fullRanges[prefix]; ok {
+		for _, idx := range prefixRange {
+			if key < rs.items[idx].key ||
+				(matchKey && rs.items[idx].key == key) {
+
+				return &rs.items[idx], true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// prev returns the pre-fetched prev key/value of the prefix from key.
+func (rs *readSet) prev(prefix, key string) (*stmGet, bool) {
+	if prefixRange, ok := rs.fullRanges[prefix]; ok {
+		for i := len(prefixRange) - 1; i >= 0; i-- {
+			idx := prefixRange[i]
+			if rs.items[idx].key < key {
+				return &rs.items[idx], true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// last returns the last key/value of the passed range (if prefetched).
+func (rs *readSet) last(prefix string) (*stmGet, bool) {
+	if prefixRange, ok := rs.fullRanges[prefix]; ok {
+		if len(prefixRange) > 0 {
+			idx := prefixRange[len(prefixRange)-1]
+			return &rs.items[idx], true
+		}
+	}
+
+	return nil, false
+}
+
+// clear completely clears the readset.
+func (rs *readSet) clear() {
+	rs.index = make(map[string]int)
+	rs.items = nil
+	rs.fullRanges = make(map[string][]int)
+}
+
+// getItem reurns the matching key/value from the readset.
+func (rs *readSet) getItem(key string) (*stmGet, bool) {
+	if idx, ok := rs.index[key]; ok {
+		return &rs.items[idx], true
+	}
+
+	for prefix := range rs.fullRanges {
+		if strings.HasPrefix(key, prefix) {
+			return &stmGet{}, true
+		}
+	}
+
+	return nil, false
+}
+
+// prefetchSet is a helper to create an op slice of all OpGet's that represent
+// fetched keys appended with a slice of all OpGet's representing all prefetched
+// full ranges.
+func (rs *readSet) prefetchSet() []v3.Op {
+	ops := make([]v3.Op, 0, len(rs.items))
+
+	for k := range rs.index {
+		add := true
+		for prefix := range rs.fullRanges {
+			// Only add those items that have not been in prefetched
+			// full ranges to avoid unfetched when prefetching next.
+			if strings.HasPrefix(k, prefix) {
+				add = false
+				break
+			}
+		}
+
+		if add {
+			ops = append(ops, v3.OpGet(k))
+		}
+	}
+
+	for prefix := range rs.fullRanges {
+		ops = append(ops, v3.OpGet(prefix, v3.WithPrefix()))
 	}
 
 	return ops
 }
 
+// getFullRanges returns all prefixes that we prefetched.
+func (rs *readSet) getFullRanges() []string {
+	prefixes := make([]string, 0, len(rs.fullRanges))
+
+	for prefix := range rs.fullRanges {
+		prefixes = append(prefixes, prefix)
+	}
+
+	return prefixes
+}
+
 // cmps returns a compare list which will serve as a precondition testing that
 // the values in the read set didn't change.
-func (rs readSet) cmps() []v3.Cmp {
-	cmps := make([]v3.Cmp, 0, len(rs))
-	for key, getValue := range rs {
-		cmps = append(cmps, v3.Compare(
-			v3.ModRevision(key), "=", getValue.rev,
-		))
+func (rs *readSet) cmps() []v3.Cmp {
+	cmps := make([]v3.Cmp, len(rs.items))
+	for i := range rs.items {
+		cmps[i] = v3.Compare(
+			v3.ModRevision(rs.items[i].key), "=", rs.items[i].rev,
+		)
 	}
 
 	return cmps
@@ -363,6 +564,7 @@ func (ws writeSet) puts() []v3.Op {
 // then fetch will try to fix the STM's snapshot revision (if not already set).
 // We'll also cache the returned key/value in the read set.
 func (s *stm) fetch(key string, opts ...v3.OpOption) ([]KV, error) {
+	s.callCount++
 	resp, err := s.client.Get(
 		s.options.ctx, key, append(opts, s.getOpts...)...,
 	)
@@ -387,26 +589,18 @@ func (s *stm) fetch(key string, opts ...v3.OpOption) ([]KV, error) {
 		// Add assertion to the read set which will extend our commit
 		// constraint such that the commit will fail if the key is
 		// present in the database.
-		s.rset[key] = stmGet{
-			rev: 0,
-		}
+		s.rset.addItem(key, "", 0)
 	}
 
 	var result []KV
 
 	// Fill the read set with key/values returned.
 	for _, kv := range resp.Kvs {
-		// Remove from prefetch.
 		key := string(kv.Key)
 		val := string(kv.Value)
 
-		delete(s.prefetch, key)
-
 		// Add to read set.
-		s.rset[key] = stmGet{
-			val: val,
-			rev: kv.ModRevision,
-		}
+		s.rset.addItem(key, val, kv.ModRevision)
 
 		result = append(result, KV{key, val})
 	}
@@ -431,20 +625,8 @@ func (s *stm) Get(key string) ([]byte, error) {
 		return []byte(put.val), nil
 	}
 
-	// Populate read set if key is present in
-	// the prefetch set.
-	if getValue, ok := s.prefetch[key]; ok {
-		delete(s.prefetch, key)
-
-		// Use the prefetched value only if it is for
-		// an existing key.
-		if getValue.rev != 0 {
-			s.rset[key] = getValue
-		}
-	}
-
 	// Return value if alread in read set.
-	if getValue, ok := s.rset[key]; ok {
+	if getValue, ok := s.rset.getItem(key); ok {
 		// Return the value if the rset contains an existing key.
 		if getValue.rev != 0 {
 			return []byte(getValue.val), nil
@@ -476,21 +658,28 @@ func (s *stm) First(prefix string) (*KV, error) {
 // Last returns the last key/value with prefix. If there's no key starting with
 // prefix, Last will return nil.
 func (s *stm) Last(prefix string) (*KV, error) {
-	// As we don't know the full range, fetch the last
-	// key/value with this prefix first.
-	resp, err := s.fetch(prefix, v3.WithLastKey()...)
-	if err != nil {
-		return nil, err
-	}
-
 	var (
 		kv    KV
 		found bool
 	)
 
-	if len(resp) > 0 {
-		kv = resp[0]
-		found = true
+	if s.rset.hasFullRange(prefix) {
+		if item, ok := s.rset.last(prefix); ok {
+			kv = item.KV
+			found = true
+		}
+	} else {
+		// As we don't know the full range, fetch the last
+		// key/value with this prefix first.
+		resp, err := s.fetch(prefix, v3.WithLastKey()...)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(resp) > 0 {
+			kv = resp[0]
+			found = true
+		}
 	}
 
 	// Now make sure there's nothing in the write set
@@ -520,30 +709,39 @@ func (s *stm) Last(prefix string) (*KV, error) {
 // Prev returns the prior key/value before key (with prefix). If there's no such
 // key Next will return nil.
 func (s *stm) Prev(prefix, startKey string) (*KV, error) {
-	var result KV
+	var kv, result KV
 
 	fetchKey := startKey
 	matchFound := false
 
 	for {
-		// Ask etcd to retrieve one key that is a
-		// match in descending order from the passed key.
-		opts := []v3.OpOption{
-			v3.WithRange(fetchKey),
-			v3.WithSort(v3.SortByKey, v3.SortDescend),
-			v3.WithLimit(1),
-		}
+		if s.rset.hasFullRange(prefix) {
+			if item, ok := s.rset.prev(prefix, fetchKey); ok {
+				kv = item.KV
+			} else {
+				break
+			}
+		} else {
 
-		kvs, err := s.fetch(prefix, opts...)
-		if err != nil {
-			return nil, err
-		}
+			// Ask etcd to retrieve one key that is a
+			// match in descending order from the passed key.
+			opts := []v3.OpOption{
+				v3.WithRange(fetchKey),
+				v3.WithSort(v3.SortByKey, v3.SortDescend),
+				v3.WithLimit(1),
+			}
 
-		if len(kvs) == 0 {
-			break
-		}
+			kvs, err := s.fetch(prefix, opts...)
+			if err != nil {
+				return nil, err
+			}
 
-		kv := &kvs[0]
+			if len(kvs) == 0 {
+				break
+			}
+
+			kv = kvs[0]
+		}
 
 		// WithRange and WithPrefix can't be used
 		// together, so check prefix here. If the
@@ -559,13 +757,13 @@ func (s *stm) Prev(prefix, startKey string) (*KV, error) {
 			continue
 		}
 
-		result = *kv
+		result = kv
 		matchFound = true
 
 		break
 	}
 
-	// Closre holding all checks to find a possibly
+	// Closure holding all checks to find a possibly
 	// better match.
 	matches := func(key string) bool {
 		if !strings.HasPrefix(key, prefix) {
@@ -614,47 +812,59 @@ func (s *stm) Seek(prefix, key string) (*KV, error) {
 // passed startKey. If includeStartKey is set to true, it'll return the value
 // of startKey (essentially implementing seek).
 func (s *stm) next(prefix, startKey string, includeStartKey bool) (*KV, error) {
-	var result KV
+	var kv, result KV
 
 	fetchKey := startKey
 	firstFetch := true
 	matchFound := false
 
 	for {
-		// Ask etcd to retrieve one key that is a
-		// match in ascending order from the passed key.
-		opts := []v3.OpOption{
-			v3.WithFromKey(),
-			v3.WithSort(v3.SortByKey, v3.SortAscend),
-			v3.WithLimit(1),
-		}
-
-		// By default we include the start key too
-		// if it is a full match.
-		if includeStartKey && firstFetch {
+		if s.rset.hasFullRange(prefix) {
+			if item, ok := s.rset.next(
+				prefix, fetchKey, includeStartKey && firstFetch,
+			); ok {
+				kv = item.KV
+			} else {
+				break
+			}
 			firstFetch = false
 		} else {
-			// If we'd like to retrieve the first key
-			// after the start key.
-			fetchKey += "\x00"
-		}
+			// Ask etcd to retrieve one key that is a
+			// match in ascending order from the passed key.
+			opts := []v3.OpOption{
+				v3.WithFromKey(),
+				v3.WithSort(v3.SortByKey, v3.SortAscend),
+				v3.WithLimit(1),
+			}
 
-		kvs, err := s.fetch(fetchKey, opts...)
-		if err != nil {
-			return nil, err
-		}
+			// By default we include the start key too
+			// if it is a full match.
+			if includeStartKey && firstFetch {
+				firstFetch = false
+			} else {
+				// If we'd like to retrieve the first key
+				// after the start key.
+				fetchKey += "\x00"
+			}
 
-		if len(kvs) == 0 {
-			break
-		}
+			kvs, err := s.fetch(fetchKey, opts...)
+			if err != nil {
+				return nil, err
+			}
 
-		kv := &kvs[0]
-		// WithRange and WithPrefix can't be used
-		// together, so check prefix here. If the
-		// returned key no longer has the prefix,
-		// then break the fetch loop.
-		if !strings.HasPrefix(kv.key, prefix) {
-			break
+			if len(kvs) == 0 {
+				break
+			}
+
+			kv = kvs[0]
+
+			// WithRange and WithPrefix can't be used
+			// together, so check prefix here. If the
+			// returned key no longer has the prefix,
+			// then break the fetch loop.
+			if !strings.HasPrefix(kv.key, prefix) {
+				break
+			}
 		}
 
 		// Move on to fetch starting with the next
@@ -664,7 +874,7 @@ func (s *stm) next(prefix, startKey string, includeStartKey bool) (*KV, error) {
 			continue
 		}
 
-		result = *kv
+		result = kv
 		matchFound = true
 
 		break
@@ -732,6 +942,72 @@ func (s *stm) OnCommit(cb func()) {
 	s.onCommit = cb
 }
 
+// Prefetch will prefetch the passed keys and prefixes in one transaction.
+// Keys and prefixes that we already have will be skipped.
+func (s *stm) Prefetch(keys []string, prefixes []string) {
+	fetchKeys := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if _, ok := s.rset.getItem(key); !ok {
+			fetchKeys = append(fetchKeys, key)
+		}
+	}
+
+	fetchPrefixes := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if s.rset.hasFullRange(prefix) {
+			continue
+		}
+		fetchPrefixes = append(fetchPrefixes, prefix)
+	}
+
+	if len(fetchKeys) == 0 && len(fetchPrefixes) == 0 {
+		return
+	}
+
+	prefixOpts := append(
+		[]v3.OpOption{v3.WithPrefix()}, s.getOpts...,
+	)
+
+	txn := s.client.Txn(s.options.ctx)
+	ops := make([]v3.Op, 0, len(fetchKeys)+len(fetchPrefixes))
+
+	for _, key := range fetchKeys {
+		ops = append(ops, v3.OpGet(key, s.getOpts...))
+	}
+	for _, key := range fetchPrefixes {
+		ops = append(ops, v3.OpGet(key, prefixOpts...))
+	}
+
+	txn.Then(ops...)
+	txnresp, err := txn.Commit()
+	s.callCount++
+
+	if err != nil {
+		return
+	}
+
+	// Set revison and serializable options upon first fetch for any
+	// subsequent fetches.
+	if s.getOpts == nil {
+		s.revision = txnresp.Header.Revision
+		s.getOpts = []v3.OpOption{
+			v3.WithRev(s.revision),
+			v3.WithSerializable(),
+		}
+	}
+
+	// Preset keys to "not-present" (revision set to zero).
+	for _, key := range fetchKeys {
+		s.rset.presetItem(key)
+	}
+
+	// Set prefetched keys.
+	s.rset.add(txnresp.Responses[:len(fetchKeys)])
+
+	// Set prefetched ranges.
+	s.rset.addFullRange(fetchPrefixes, txnresp.Responses[len(fetchKeys):])
+}
+
 // commit builds the final transaction and tries to execute it. If commit fails
 // because the keys have changed return a CommitError, otherwise return a
 // DatabaseError.
@@ -753,10 +1029,11 @@ func (s *stm) commit() (CommitStats, error) {
 	txn = txn.If(cmps...)
 	txn = txn.Then(s.wset.puts()...)
 
-	// Prefetch keys in case of conflict to save
-	// a round trip to etcd.
-	txn = txn.Else(s.rset.gets()...)
+	// Prefetch keys and ranges in case of conflict to save as many
+	// round-trips as possible.
+	txn = txn.Else(s.rset.prefetchSet()...)
 
+	s.callCount++
 	txnresp, err := txn.Commit()
 	if err != nil {
 		return stats, DatabaseError{
@@ -765,8 +1042,7 @@ func (s *stm) commit() (CommitStats, error) {
 		}
 	}
 
-	// Call the commit callback if the transaction
-	// was successful.
+	// Call the commit callback if the transaction was successful.
 	if txnresp.Succeeded {
 		if s.onCommit != nil {
 			s.onCommit()
@@ -775,12 +1051,23 @@ func (s *stm) commit() (CommitStats, error) {
 		return stats, nil
 	}
 
-	// Load prefetch before if commit failed.
-	s.rset.add(txnresp)
-	s.prefetch = s.rset
+	// Determine where our fetched full ranges begin in the response.
+	prefixes := s.rset.getFullRanges()
+	firstPrefixResp := len(txnresp.Responses) - len(prefixes)
 
-	// Return CommitError indicating that the transaction
-	// can be retried.
+	// Clear reload and preload it with the prefetched keys and ranges.
+	s.rset.clear()
+	s.rset.add(txnresp.Responses[:firstPrefixResp])
+	s.rset.addFullRange(prefixes, txnresp.Responses[firstPrefixResp:])
+
+	// Set our revision boundary.
+	s.revision = txnresp.Header.Revision
+	s.getOpts = []v3.OpOption{
+		v3.WithRev(s.revision),
+		v3.WithSerializable(),
+	}
+
+	// Return CommitError indicating that the transaction can be retried.
 	return stats, CommitError{}
 }
 
@@ -798,8 +1085,17 @@ func (s *stm) Commit() error {
 // Rollback resets the STM. This is useful for uncommitted transaction rollback
 // and also used in the STM main loop to reset state if commit fails.
 func (s *stm) Rollback() {
-	s.rset = make(map[string]stmGet)
+	s.reset(true)
+}
+
+// reset will reset the read and write sets. If clearReadSet is false we'll
+// only reset the the write set.
+func (s *stm) reset(clearReadSet bool) {
+	if clearReadSet {
+		s.rset.clear()
+		s.revision = math.MaxInt64 - 1
+		s.getOpts = nil
+	}
+
 	s.wset = make(map[string]stmPut)
-	s.getOpts = nil
-	s.revision = math.MaxInt64 - 1
 }

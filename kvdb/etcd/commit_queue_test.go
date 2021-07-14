@@ -17,7 +17,7 @@ import (
 func TestCommitQueue(t *testing.T) {
 	// The duration of each commit.
 	const commitDuration = time.Millisecond * 500
-	const numCommits = 4
+	const numCommits = 5
 
 	var wg sync.WaitGroup
 	commits := make([]string, numCommits)
@@ -30,35 +30,13 @@ func TestCommitQueue(t *testing.T) {
 			// Update our log of commit order. Avoid blocking
 			// by preallocating the commit log and increasing
 			// the log index atomically.
-			i := atomic.AddInt32(&idx, 1)
-			commits[i] = tag
-
 			if sleep {
 				time.Sleep(commitDuration)
 			}
+
+			i := atomic.AddInt32(&idx, 1)
+			commits[i] = tag
 		}
-	}
-
-	// Helper function to create a read set from the passed keys.
-	makeReadSet := func(keys []string) readSet {
-		rs := make(map[string]stmGet)
-
-		for _, key := range keys {
-			rs[key] = stmGet{}
-		}
-
-		return rs
-	}
-
-	// Helper function to create a write set from the passed keys.
-	makeWriteSet := func(keys []string) writeSet {
-		ws := make(map[string]stmPut)
-
-		for _, key := range keys {
-			ws[key] = stmPut{}
-		}
-
-		return ws
 	}
 
 	ctx := context.Background()
@@ -70,29 +48,35 @@ func TestCommitQueue(t *testing.T) {
 	wg.Add(numCommits)
 	t1 := time.Now()
 
-	// Tx1: reads: key1, key2, writes: key3, conflict: none
+	// Tx1 (long): reads: key1, key2, writes: key3, conflict: none
 	q.Add(
 		commit("free", true),
-		makeReadSet([]string{"key1", "key2"}),
-		makeWriteSet([]string{"key3"}),
+		[]string{"key1", "key2"},
+		[]string{"key3"},
 	)
 	// Tx2: reads: key1, key2, writes: key3, conflict: Tx1
 	q.Add(
 		commit("blocked1", false),
-		makeReadSet([]string{"key1", "key2"}),
-		makeWriteSet([]string{"key3"}),
+		[]string{"key1", "key2"},
+		[]string{"key3"},
 	)
-	// Tx3: reads: key1, writes: key4, conflict: none
+	// Tx3 (long): reads: key1, writes: key4, conflict: none
 	q.Add(
 		commit("free", true),
-		makeReadSet([]string{"key1", "key2"}),
-		makeWriteSet([]string{"key4"}),
+		[]string{"key1", "key2"},
+		[]string{"key4"},
+	)
+	// Tx4 (long): reads: key1, writes: none, conflict: none
+	q.Add(
+		commit("free", true),
+		[]string{"key1", "key2"},
+		[]string{},
 	)
 	// Tx4: reads: key2, writes: key4 conflict: Tx3
 	q.Add(
 		commit("blocked2", false),
-		makeReadSet([]string{"key2"}),
-		makeWriteSet([]string{"key4"}),
+		[]string{"key2"},
+		[]string{"key4"},
 	)
 
 	// Wait for all commits.
@@ -109,7 +93,7 @@ func TestCommitQueue(t *testing.T) {
 	// before the blocking ones, and the blocking ones are executed in
 	// the order of addition.
 	require.Equal(t,
-		[]string{"free", "free", "blocked1", "blocked2"},
+		[]string{"free", "blocked1", "free", "free", "blocked2"},
 		commits,
 	)
 }

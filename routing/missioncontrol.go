@@ -234,6 +234,16 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	return mc, nil
 }
 
+// RunStoreTicker runs the mission control store's ticker.
+func (m *MissionControl) RunStoreTicker() {
+	m.store.RunTicker()
+}
+
+// StopStoreTicker stops the mission control store's ticker.
+func (m *MissionControl) StopStoreTicker() {
+	m.store.StopTicker()
+}
+
 // init initializes mission control with historical data.
 func (m *MissionControl) init() error {
 	log.Debugf("Mission control state reconstruction started")

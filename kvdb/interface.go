@@ -135,6 +135,86 @@ type RwCursor = walletdb.ReadWriteCursor
 // instead.
 type RwTx = walletdb.ReadWriteTx
 
+// ExtendedRTx is an extension to walletdb.ReadTx to allow prefetching of keys.
+type ExtendedRTx interface {
+	RTx
+
+	// RootBucket returns the "root bucket" which is pseudo bucket used
+	// when prefetching (keys from) top level buckets.
+	RootBucket() RBucket
+}
+
+// ExtendedRBucket is an extension to walletdb.ReadBucket to allow prefetching
+// of different kind of keys.
+type ExtendedRBucket interface {
+	RBucket
+
+	// Prefetch will prefetch keys (exact match) and ranges (prefix match).
+	// So that subsequent fetches for those keys and keys in ranges don't
+	// go the the DB.
+	Prefetch(keys []string, ranges []string)
+
+	// BucketKey creates a bucket key from the passed buckets as represented
+	// by the underlying implementation.
+	BucketKey(buckets ...string) string
+
+	// RangeKey creates a prefix key (all keys inside the bucket) from the
+	// passed buckets as represented by the implementation.
+	RangeKey(buckets ...string) string
+
+	// ValueKey creates a key for a single value from the passed key and
+	// buckets as represented by the implementation.
+	ValueKey(key string, buckets ...string) string
+}
+
+// BucketKey is a wrapper to ExtendedRBucket.BucketKey which does nothing if
+// the implementation doesn't have ExtendedRBucket.
+func BucketKey(b RBucket, buckets ...string) string {
+	if bucket, ok := b.(ExtendedRBucket); ok {
+		return bucket.BucketKey(buckets...)
+	}
+
+	return ""
+}
+
+// ValueKey is a wrapper to ExtendedRBucket.ValueKey which does nothing if
+// the implementation doesn't have ExtendedRBucket.
+func ValueKey(b RBucket, key string, buckets ...string) string {
+	if bucket, ok := b.(ExtendedRBucket); ok {
+		return bucket.ValueKey(key, buckets...)
+	}
+
+	return ""
+}
+
+// RangeKey is a wrapper to ExtendedRBucket.RangeKey which does nothing if
+// the implementation doesn't have ExtendedRBucket.
+func RangeKey(b RBucket, buckets ...string) string {
+	if bucket, ok := b.(ExtendedRBucket); ok {
+		return bucket.RangeKey(buckets...)
+	}
+
+	return ""
+}
+
+// Prefetch is a wrapper to ExtendedRBucket.Prefetch which does nothing if
+// the implementation doesn't have ExtendedRBucket.
+func Prefetch(b RBucket, keys []string, ranges []string) {
+	if bucket, ok := b.(ExtendedRBucket); ok {
+		bucket.Prefetch(keys, ranges)
+	}
+}
+
+// RootBucket is a wrapper to ExtendedRTx.RootBucket which does nothing if
+// the implementation doesn't have ExtendedRTx.
+func RootBucket(t RTx) RBucket {
+	if tx, ok := t.(ExtendedRTx); ok {
+		return tx.RootBucket()
+	}
+
+	return nil
+}
+
 var (
 	// ErrBucketNotFound is returned when trying to access a bucket that
 	// has not been created yet.
