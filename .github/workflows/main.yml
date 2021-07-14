@@ -258,3 +258,16 @@ jobs:
 
       - name: ensure dependences at correct version
         run:   if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
+
+  ########################
+  # check PR updates release notes
+  ########################
+  milestone-check:
+    name: check release notes updated
+    runs-on: ubuntu-latest
+    # Allow other tests in the matrix to continue if one fails.
+    strategy:
+      fail-fast: false
+    steps:
+      - name: release notes check
+        run: scripts/check-release-notes.sh
