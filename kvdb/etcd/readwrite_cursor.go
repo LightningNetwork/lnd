@@ -121,22 +121,10 @@ func (c *readWriteCursor) Seek(seek []byte) (key, value []byte) {
 // invalidating the cursor.  Returns ErrIncompatibleValue if attempted
 // when the cursor points to a nested bucket.
 func (c *readWriteCursor) Delete() error {
-	// Get the next key after the current one. We could do this
-	// after deletion too but it's one step more efficient here.
-	nextKey, err := c.bucket.tx.stm.Next(c.prefix, c.currKey)
-	if err != nil {
-		return err
-	}
-
 	if isBucketKey(c.currKey) {
 		c.bucket.DeleteNestedBucket(getKey(c.currKey))
 	} else {
 		c.bucket.Delete(getKey(c.currKey))
-	}
-
-	if nextKey != nil {
-		// Set current key to the next one.
-		c.currKey = nextKey.key
 	}
 
 	return nil

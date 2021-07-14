@@ -116,20 +116,6 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	return newReadWriteBucket(b.tx, bucketKey, bucketVal)
 }
 
-// assertNoValue checks if the value for the passed key exists.
-func (b *readWriteBucket) assertNoValue(key []byte) error {
-	val, err := b.tx.stm.Get(string(makeValueKey(b.id, key)))
-	if err != nil {
-		return err
-	}
-
-	if val != nil {
-		return walletdb.ErrIncompatibleValue
-	}
-
-	return nil
-}
-
 // CreateBucket creates and returns a new nested bucket with the given
 // key. Returns ErrBucketExists if the bucket already exists,
 // ErrBucketNameRequired if the key is empty, or ErrIncompatibleValue
@@ -153,10 +139,6 @@ func (b *readWriteBucket) CreateBucket(key []byte) (
 
 	if isValidBucketID(bucketVal) {
 		return nil, walletdb.ErrBucketExists
-	}
-
-	if err := b.assertNoValue(key); err != nil {
-		return nil, err
 	}
 
 	// Create a deterministic bucket id from the bucket key.
@@ -189,10 +171,6 @@ func (b *readWriteBucket) CreateBucketIfNotExists(key []byte) (
 	}
 
 	if !isValidBucketID(bucketVal) {
-		if err := b.assertNoValue(key); err != nil {
-			return nil, err
-		}
-
 		newID := makeBucketID(bucketKey)
 		b.tx.stm.Put(string(bucketKey), string(newID[:]))
 
@@ -270,15 +248,6 @@ func (b *readWriteBucket) DeleteNestedBucket(key []byte) error {
 func (b *readWriteBucket) Put(key, value []byte) error {
 	if len(key) == 0 {
 		return walletdb.ErrKeyRequired
-	}
-
-	val, err := b.tx.stm.Get(string(makeBucketKey(b.id, key)))
-	if err != nil {
-		return err
-	}
-
-	if val != nil {
-		return walletdb.ErrIncompatibleValue
 	}
 
 	// Update the transaction with the new value.
