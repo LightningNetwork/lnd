@@ -404,7 +404,7 @@ type hodlHtlc struct {
 func NewChannelLink(cfg ChannelLinkConfig,
 	channel *lnwallet.LightningChannel) ChannelLink {
 
-	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ShortChanID())
+	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
 	return &channelLink{
 		cfg:         cfg,
