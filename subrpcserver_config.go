@@ -92,8 +92,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	chanRouter *routing.ChannelRouter,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
-	localChanDB *channeldb.DB,
-	remoteChanDB *channeldb.DB,
+	graphDB *channeldb.ChannelGraph,
+	chanStateDB *channeldb.DB,
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
 	towerClient wtclient.Client,
@@ -222,11 +222,11 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(
 				reflect.ValueOf(defaultDelta),
 			)
-			subCfgValue.FieldByName("LocalChanDB").Set(
-				reflect.ValueOf(localChanDB),
+			subCfgValue.FieldByName("GraphDB").Set(
+				reflect.ValueOf(graphDB),
 			)
-			subCfgValue.FieldByName("RemoteChanDB").Set(
-				reflect.ValueOf(remoteChanDB),
+			subCfgValue.FieldByName("ChanStateDB").Set(
+				reflect.ValueOf(chanStateDB),
 			)
 			subCfgValue.FieldByName("GenInvoiceFeatures").Set(
 				reflect.ValueOf(genInvoiceFeatures),

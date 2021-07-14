@@ -33,7 +33,7 @@ var (
 // default password of 'hello'. Only the path to the temporary
 // DB file is returned, because the service will open the file
 // and read the store on its own.
-func setupTestRootKeyStorage(t *testing.T) string {
+func setupTestRootKeyStorage(t *testing.T) (string, kvdb.Backend) {
 	tempDir, err := ioutil.TempDir("", "macaroonstore-")
 	if err != nil {
 		t.Fatalf("Error creating temp dir: %v", err)
@@ -55,21 +55,20 @@ func setupTestRootKeyStorage(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("error creating unlock: %v", err)
 	}
-	return tempDir
+	return tempDir, db
 }
 
 // TestNewService tests the creation of the macaroon service.
 func TestNewService(t *testing.T) {
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
-	tempDir := setupTestRootKeyStorage(t)
+	tempDir, db := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
 
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
 	service, err := macaroons.NewService(
-		tempDir, "lnd", false, kvdb.DefaultDBTimeout,
-		macaroons.IPLockChecker,
+		db, "lnd", false, macaroons.IPLockChecker,
 	)
 	if err != nil {
 		t.Fatalf("Error creating new service: %v", err)
@@ -117,11 +116,10 @@ func TestNewService(t *testing.T) {
 // incoming context.
 func TestValidateMacaroon(t *testing.T) {
 	// First, initialize the service and unlock it.
-	tempDir := setupTestRootKeyStorage(t)
+	tempDir, db := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
 	service, err := macaroons.NewService(
-		tempDir, "lnd", false, kvdb.DefaultDBTimeout,
-		macaroons.IPLockChecker,
+		db, "lnd", false, macaroons.IPLockChecker,
 	)
 	if err != nil {
 		t.Fatalf("Error creating new service: %v", err)
@@ -175,14 +173,13 @@ func TestValidateMacaroon(t *testing.T) {
 func TestListMacaroonIDs(t *testing.T) {
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
-	tempDir := setupTestRootKeyStorage(t)
+	tempDir, db := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
 
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
 	service, err := macaroons.NewService(
-		tempDir, "lnd", false, kvdb.DefaultDBTimeout,
-		macaroons.IPLockChecker,
+		db, "lnd", false, macaroons.IPLockChecker,
 	)
 	require.NoError(t, err, "Error creating new service")
 	defer service.Close()
@@ -208,14 +205,13 @@ func TestDeleteMacaroonID(t *testing.T) {
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
-	tempDir := setupTestRootKeyStorage(t)
+	tempDir, db := setupTestRootKeyStorage(t)
 	defer os.RemoveAll(tempDir)
 
 	// Second, create the new service instance, unlock it and pass in a
 	// checker that we expect it to add to the bakery.
 	service, err := macaroons.NewService(
-		tempDir, "lnd", false, kvdb.DefaultDBTimeout,
-		macaroons.IPLockChecker,
+		db, "lnd", false, macaroons.IPLockChecker,
 	)
 	require.NoError(t, err, "Error creating new service")
 	defer service.Close()

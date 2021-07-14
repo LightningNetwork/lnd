@@ -66,7 +66,6 @@ type RootKeyStorage struct {
 }
 
 // NewRootKeyStorage creates a RootKeyStorage instance.
-// TODO(aakselrod): Add support for encryption of data with passphrase.
 func NewRootKeyStorage(db kvdb.Backend) (*RootKeyStorage, error) {
 	// If the store's bucket doesn't exist, create it.
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
@@ -78,7 +77,10 @@ func NewRootKeyStorage(db kvdb.Backend) (*RootKeyStorage, error) {
 	}
 
 	// Return the DB wrapped in a RootKeyStorage object.
-	return &RootKeyStorage{Backend: db, encKey: nil}, nil
+	return &RootKeyStorage{
+		Backend: db,
+		encKey:  nil,
+	}, nil
 }
 
 // CreateUnlock sets an encryption key if one is not already set, otherwise it
@@ -341,7 +343,13 @@ func (r *RootKeyStorage) Close() error {
 		r.encKey.Zero()
 		r.encKey = nil
 	}
-	return r.Backend.Close()
+
+	// Since we're not responsible for _creating_ the connection to our DB
+	// backend, we also shouldn't close it. This should be handled
+	// externally as to not interfere with remote DB connections in case we
+	// need to open/close the store twice as happens in the password change
+	// case.
+	return nil
 }
 
 // generateAndStoreNewRootKey creates a new random RootKeyLen-byte root key,

@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -68,11 +69,13 @@ type Config struct {
 	// LtcdMode defines settings for connecting to an ltcd node.
 	LtcdMode *lncfg.Btcd
 
-	// LocalChanDB is a pointer to the local backing channel database.
-	LocalChanDB *channeldb.DB
+	// HeightHintDB is a pointer to the database that stores the height
+	// hints.
+	HeightHintDB kvdb.Backend
 
-	// RemoteChanDB is a pointer to the remote backing channel database.
-	RemoteChanDB *channeldb.DB
+	// ChanStateDB is a pointer to the database that stores the channel
+	// state.
+	ChanStateDB *channeldb.DB
 
 	// BlockCacheSize is the size (in bytes) of blocks kept in memory.
 	BlockCacheSize uint64
@@ -304,7 +307,7 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 
 	// Initialize the height hint cache within the chain directory.
 	hintCache, err := chainntnfs.NewHeightHintCache(
-		heightHintCacheConfig, cfg.LocalChanDB,
+		heightHintCacheConfig, cfg.HeightHintDB,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to initialize height hint "+
@@ -684,7 +687,7 @@ func NewChainControl(cfg *Config, blockCache *blockcache.BlockCache) (
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	walletCfg := lnwallet.Config{
-		Database:           cfg.RemoteChanDB,
+		Database:           cfg.ChanStateDB,
 		Notifier:           cc.ChainNotifier,
 		WalletController:   wc,
 		Signer:             cc.Signer,

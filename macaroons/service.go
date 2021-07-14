@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path"
-	"time"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"google.golang.org/grpc/metadata"
@@ -17,10 +14,6 @@ import (
 )
 
 var (
-	// DBFilename is the filename within the data directory which contains
-	// the macaroon stores.
-	DBFilename = "macaroons.db"
-
 	// ErrMissingRootKeyID specifies the root key ID is missing.
 	ErrMissingRootKeyID = fmt.Errorf("missing root key ID")
 
@@ -68,34 +61,17 @@ type Service struct {
 	StatelessInit bool
 }
 
-// NewService returns a service backed by the macaroon Bolt DB stored in the
-// passed directory. The `checks` argument can be any of the `Checker` type
-// functions defined in this package, or a custom checker if desired. This
-// constructor prevents double-registration of checkers to prevent panics, so
-// listing the same checker more than once is not harmful. Default checkers,
-// such as those for `allow`, `time-before`, `declared`, and `error` caveats
-// are registered automatically and don't need to be added.
-func NewService(dir, location string, statelessInit bool,
-	dbTimeout time.Duration, checks ...Checker) (*Service, error) {
+// NewService returns a service backed by the macaroon DB backend. The `checks`
+// argument can be any of the `Checker` type functions defined in this package,
+// or a custom checker if desired. This constructor prevents double-registration
+// of checkers to prevent panics, so listing the same checker more than once is
+// not harmful. Default checkers, such as those for `allow`, `time-before`,
+// `declared`, and `error` caveats are registered automatically and don't need
+// to be added.
+func NewService(db kvdb.Backend, location string, statelessInit bool,
+	checks ...Checker) (*Service, error) {
 
-	// Ensure that the path to the directory exists.
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, err
-		}
-	}
-
-	// Open the database that we'll use to store the primary macaroon key,
-	// and all generated macaroons+caveats.
-	macaroonDB, err := kvdb.Create(
-		kvdb.BoltBackendName, path.Join(dir, DBFilename), true,
-		dbTimeout,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	rootKeyStore, err := NewRootKeyStorage(macaroonDB)
+	rootKeyStore, err := NewRootKeyStorage(db)
 	if err != nil {
 		return nil, err
 	}

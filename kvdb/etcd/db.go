@@ -131,7 +131,7 @@ type db struct {
 var _ walletdb.DB = (*db)(nil)
 
 // newEtcdBackend returns a db object initialized with the passed backend
-// config. If etcd connection cannot be estabished, then returns error.
+// config. If etcd connection cannot be established, then returns error.
 func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	clientCfg := clientv3.Config{
 		Context:            ctx,
@@ -181,7 +181,7 @@ func newEtcdBackend(ctx context.Context, cfg Config) (*db, error) {
 	return backend, nil
 }
 
-// getSTMOptions creats all STM options based on the backend config.
+// getSTMOptions creates all STM options based on the backend config.
 func (db *db) getSTMOptions() []STMOptionFunc {
 	opts := []STMOptionFunc{
 		WithAbortContext(db.ctx),
