@@ -42,10 +42,6 @@ func Fuzz_query_short_chan_ids_zlib(data []byte) int {
 	// Prefix with MsgQueryShortChanIDs.
 	payload = prefixWithMsgType(payload, lnwire.MsgQueryShortChanIDs)
 
-	// Create an empty message so that the FuzzHarness func can check
-	// if the max payload constraint is violated.
-	emptyMsg := lnwire.QueryShortChanIDs{}
-
 	// Pass the message into our general fuzz harness for wire messages!
-	return harness(payload, &emptyMsg)
+	return harness(payload)
 }
