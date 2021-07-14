@@ -43,7 +43,9 @@ RUN apk --no-cache add \
 # Copy the binaries from the builder image.
 COPY --from=builder /go/bin/lncli /bin/
 COPY --from=builder /go/bin/lnd /bin/
+COPY --from=builder /go/bin/lndinit /bin/
 COPY --from=builder /go/src/github.com/lightningnetwork/lnd/scripts/verify-install.sh /
+COPY --from=builder /go/src/github.com/lightningnetwork/lnd/scripts/init-*.sh /
 
 # Store the SHA256 hash of the binaries that were just produced for later
 # verification.

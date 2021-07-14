@@ -139,6 +139,7 @@ function build_release() {
   go mod vendor
   reproducible_tar_gzip vendor
 
+  rootdir=$(pwd)
   maindir=$PACKAGE-$tag
   mkdir -p $maindir
   mv vendor.tar.gz "${maindir}/"
@@ -179,6 +180,13 @@ function build_release() {
     green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
     env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lnd
     env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
+
+    # The lndinit binary needs to be built a bit differently because it is its
+    # own submodule.
+    pushd ../../cmd/lndinit
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" -o "${rootdir}/${maindir}/${dir}" .
+    popd
+
     popd
 
     # Add the hashes for the individual binaries as well for easy verification
