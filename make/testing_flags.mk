@@ -46,7 +46,7 @@ endif
 
 # Define the integration test.run filter if the icase argument was provided.
 ifneq ($(icase),)
-TEST_FLAGS += -test.run="TestLightningNetworkDaemon/.*-of-.*/.*/$(icase)"
+TEST_FLAGS += -test.run="TestLightningNetworkDaemon/tranche.*/.*-of-.*/.*/$(icase)"
 endif
 
 # Run itests with specified db backend.

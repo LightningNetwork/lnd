@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1304,7 +1305,6 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 
 	// Dave should sweep his funds immediately, as they are not timelocked.
 	// We also expect Dave to sweep his anchor, if present.
-
 	_, err = waitForNTxsInMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
@@ -1340,7 +1340,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 	// After the Carol's output matures, she should also reclaim her funds.
 	//
 	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
-	// we already mined one block after the commitmment was published, so
+	// we already mined one block after the commitment was published, so
 	// take that into account.
 	mineBlocks(t, net, defaultCSV-1-1, 0)
 	carolSweep, err := waitForTxInMempool(
@@ -1361,7 +1361,7 @@ func assertDLPExecuted(net *lntest.NetworkHarness, t *harnessTest,
 			return fmt.Errorf("unable to get carol's balance: %v", err)
 		}
 
-		carolBalance := carolBalResp.ConfirmedBalance
+		carolBalance := carolBalResp.TotalBalance
 		if carolBalance <= carolStartingBalance {
 			return fmt.Errorf("expected carol to have balance "+
 				"above %d, instead had %v", carolStartingBalance,
@@ -1713,4 +1713,31 @@ func getPaymentResult(stream routerrpc.Router_SendPaymentV2Client) (
 			return payment, nil
 		}
 	}
+}
+
+// assertNumUTXOs waits for the given number of UTXOs to be available or fails
+// if that isn't the case before the default timeout.
+func assertNumUTXOs(t *testing.T, node *lntest.HarnessNode, expectedUtxos int) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+	err := wait.NoError(func() error {
+		resp, err := node.ListUnspent( // nolint:staticcheck
+			ctxt, &lnrpc.ListUnspentRequest{
+				MinConfs: 1,
+				MaxConfs: math.MaxInt32,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error listing unspent: %v", err)
+		}
+
+		if len(resp.Utxos) != expectedUtxos {
+			return fmt.Errorf("not enough UTXOs, got %d wanted %d",
+				len(resp.Utxos), expectedUtxos)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err, "wait for listunspent")
 }

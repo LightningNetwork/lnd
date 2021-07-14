@@ -772,7 +772,15 @@ func (n *NetworkHarness) RestartNode(node *HarnessNode, callback func() error,
 		unlockReq.RecoveryWindow = 1000
 	}
 
-	return node.Unlock(context.Background(), unlockReq)
+	if err := node.Unlock(context.Background(), unlockReq); err != nil {
+		return err
+	}
+
+	// Give the node some time to catch up with the chain before we continue
+	// with the tests.
+	ctxc, done := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer done()
+	return node.WaitForBlockchainSync(ctxc)
 }
 
 // RestartNodeNoUnlock attempts to restart a lightning node by shutting it down
@@ -835,7 +843,7 @@ func (n *NetworkHarness) StopNode(node *HarnessNode) error {
 
 // SaveProfilesPages hits profiles pages of all active nodes and writes it to
 // disk using a similar naming scheme as to the regular set of logs.
-func (n *NetworkHarness) SaveProfilesPages() {
+func (n *NetworkHarness) SaveProfilesPages(t *testing.T) {
 	// Only write gorutine dumps if flag is active.
 	if !(*goroutineDump) {
 		return
@@ -843,7 +851,8 @@ func (n *NetworkHarness) SaveProfilesPages() {
 
 	for _, node := range n.activeNodes {
 		if err := saveProfilesPage(node); err != nil {
-			fmt.Printf("Error: %v\n", err)
+			t.Logf("Logging follow-up error only, see rest of "+
+				"the log for actual cause: %v\n", err)
 		}
 	}
 }

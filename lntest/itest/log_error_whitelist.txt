@@ -18,6 +18,7 @@
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to advance state: channel not found
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to broadcast close tx: Transaction rejected: output already spent
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to force close: channel not found
+<time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to mark commitment broadcasted: channel not found
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.commitSweepResolver: remote party swept utxo
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: chain notifier shutting down
 <time> [ERR] CNCT: ChannelArbitrator(<chan_point>): unable to progress *contractcourt.htlcOutgoingContestResolver: chainntnfs: system interrupt while attempting to register for block epoch notification.
@@ -83,8 +84,10 @@
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): error sending channel announcement: unable to register for confirmation of ChannelPoint(<chan_point>): TxNotifier is exiting
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: gossiper is shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel announcement: router shutting down
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: error sending channel update: router shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed adding to router graph: funding manager shutting down
 <time> [ERR] FNDG: Unable to advance state(<chan_point>): failed sending fundingLocked: funding manager shutting down
+<time> [ERR] FNDG: Unable to advance state(<chan_point>): funding manager shutting down
 <time> [ERR] FNDG: unable to cancel reservation: no active reservations for peer(<hex>)
 <time> [ERR] FNDG: unable to report short chan id: link <hex> not found
 <time> [ERR] FNDG: Unable to send channel proof: channel  announcement proof for short_chan_id=<cid> isn't valid: can't verify first bitcoin signature
@@ -191,6 +194,8 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: cannot co-op close frozen channel as initiator until height=<height>, (current_height=<height>)
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: chain notifier shutting down
 <time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: must specify channel point in close channel
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: rpc error: code = DeadlineExceeded desc = context deadline exceeded
+<time> [ERR] RPCS: [/lnrpc.Lightning/CloseChannel]: server is still in the process of starting
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: already connected to peer: <hex>@<ip>
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
 <time> [ERR] RPCS: [/lnrpc.Lightning/ConnectPeer]: dial tcp <ip>: i/o timeout
@@ -199,6 +204,7 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/DeleteMacaroonID]: the specified ID cannot be deleted
 <time> [ERR] RPCS: [/lnrpc.Lightning/FundingStateStep]: pendingChanID(<hex>) already has intent registered
 <time> [ERR] RPCS: [/lnrpc.Lightning/GetChanInfo]: edge marked as zombie
+<time> [ERR] RPCS: [/lnrpc.Lightning/GetChanInfo]: edge not found
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: channels cannot be created before the wallet is fully synced
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=channel too large
 <time> [ERR] RPCS: [/lnrpc.Lightning/OpenChannel]: received funding error from <hex>: chan_id=<hex>, err=chan size of 0.16777216 BTC exceeds maximum chan size of 0.16777215 BTC

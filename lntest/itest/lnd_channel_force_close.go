@@ -314,6 +314,9 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 	net.ConnectNodes(ctxt, t.t, alice, carol)
 
+	// We need one additional UTXO for sweeping the remote anchor.
+	net.SendCoins(ctxt, t.t, btcutil.SatoshiPerBitcoin, alice)
+
 	// Before we start, obtain Carol's current wallet balance, we'll check
 	// to ensure that at the end of the force closure by Alice, Carol
 	// recognizes his new on-chain output.
@@ -484,6 +487,12 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("Node restart failed: %v", err)
 	}
 
+	// To give the neutrino backend some time to catch up with the chain, we
+	// wait here until we have enough UTXOs to actually sweep the local and
+	// remote anchor.
+	const expectedUtxos = 2
+	assertNumUTXOs(t.t, alice, expectedUtxos)
+
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. If there are anchors, we
 	// also expect the anchor sweep tx to be in the mempool.
@@ -497,9 +506,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	sweepTxns, err := getNTxsFromMempool(
 		net.Miner.Client, expectedTxes, minerMempoolTimeout,
 	)
-	if err != nil {
-		t.Fatalf("failed to find commitment in miner mempool: %v", err)
-	}
+	require.NoError(t.t, err, "sweep txns in miner mempool")
 
 	// Verify fee rate of the commitment tx plus anchor if present.
 	var totalWeight, totalFee int64
@@ -520,9 +527,7 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	// Find alice's commit sweep and anchor sweep (if present) in the
 	// mempool.
 	aliceCloseTx := waitingClose.Commitments.LocalTxid
-	_, aliceAnchor := findCommitAndAnchor(
-		t, net, sweepTxns, aliceCloseTx,
-	)
+	_, aliceAnchor := findCommitAndAnchor(t, net, sweepTxns, aliceCloseTx)
 
 	// If we expect anchors, add alice's anchor to our expected set of
 	// reports.

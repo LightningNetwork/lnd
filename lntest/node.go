@@ -1152,7 +1152,8 @@ func (hn *HarnessNode) stop() error {
 	if hn.conn != nil {
 		err := hn.conn.Close()
 		if err != nil {
-			return fmt.Errorf("error attempting to stop grpc client: %v", err)
+			return fmt.Errorf("error attempting to stop grpc "+
+				"client: %v", err)
 		}
 	}
 
