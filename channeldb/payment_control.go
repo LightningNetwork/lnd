@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -84,7 +85,10 @@ var (
 
 // PaymentControl implements persistence for payments and payment attempts.
 type PaymentControl struct {
-	db *DB
+	paymentSeqMx     sync.Mutex
+	currPaymentSeq   uint64
+	storedPaymentSeq uint64
+	db               *DB
 }
 
 // NewPaymentControl creates a new instance of the PaymentControl.
@@ -101,6 +105,14 @@ func NewPaymentControl(db *DB) *PaymentControl {
 func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	info *PaymentCreationInfo) error {
 
+	// Obtain a new sequence number for this payment. This is used
+	// to sort the payments in order of creation, and also acts as
+	// a unique identifier for each payment.
+	sequenceNum, err := p.nextPaymentSequence()
+	if err != nil {
+		return err
+	}
+
 	var b bytes.Buffer
 	if err := serializePaymentCreationInfo(&b, info); err != nil {
 		return err
@@ -108,7 +120,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 	infoBytes := b.Bytes()
 
 	var updateErr error
-	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -148,14 +160,6 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		default:
 			updateErr = ErrUnknownPaymentStatus
 			return nil
-		}
-
-		// Obtain a new sequence number for this payment. This is used
-		// to sort the payments in order of creation, and also acts as
-		// a unique identifier for each payment.
-		sequenceNum, err := nextPaymentSequence(tx)
-		if err != nil {
-			return err
 		}
 
 		// Before we set our new sequence number, we check whether this
@@ -615,19 +619,36 @@ func fetchPaymentBucketUpdate(tx kvdb.RwTx, paymentHash lntypes.Hash) (
 
 // nextPaymentSequence returns the next sequence number to store for a new
 // payment.
-func nextPaymentSequence(tx kvdb.RwTx) ([]byte, error) {
-	payments, err := tx.CreateTopLevelBucket(paymentsRootBucket)
-	if err != nil {
-		return nil, err
+func (p *PaymentControl) nextPaymentSequence() ([]byte, error) {
+	p.paymentSeqMx.Lock()
+	defer p.paymentSeqMx.Unlock()
+
+	// Set a new upper bound in the DB every 1000 payments to avoid
+	// conflicts on the sequence when using etcd.
+	if p.currPaymentSeq == p.storedPaymentSeq {
+		var newUpperBound uint64
+
+		if err := kvdb.Update(p.db.Backend, func(tx kvdb.RwTx) error {
+			paymentsBucket, err := tx.CreateTopLevelBucket(
+				paymentsRootBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			newUpperBound = paymentsBucket.Sequence() + 1000
+			return paymentsBucket.SetSequence(newUpperBound)
+		}, func() {}); err != nil {
+			return nil, err
+		}
+
+		p.storedPaymentSeq = newUpperBound
 	}
 
-	seq, err := payments.NextSequence()
-	if err != nil {
-		return nil, err
-	}
-
+	p.currPaymentSeq++
 	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, seq)
+	binary.BigEndian.PutUint64(b, p.currPaymentSeq)
+
 	return b, nil
 }
 
