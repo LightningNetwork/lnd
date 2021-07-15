@@ -1,4 +1,4 @@
-// +build !windows,!solaris,!netbsd,!openbsd
+// +build !windows,!solaris,!netbsd,!openbsd,!js
 
 package healthcheck
 
