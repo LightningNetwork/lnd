@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -563,9 +564,10 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 	numMaxHophints int) []func(*zpay32.Invoice) {
 
 	// We'll add our hop hints in two passes, first we'll add all channels
-	// that are eligible to be hop hints, and also have a local balance
+	// that are eligible to be hop hints, and also have a remote balance
 	// above the payment amount.
 	var totalHintBandwidth lnwire.MilliSatoshi
+	var hopHintPolicies policies = make(map[route.Vertex]hopHint)
 	hopHintChans := make(map[wire.OutPoint]struct{})
 	hopHints := make([]func(*zpay32.Invoice), 0, numMaxHophints)
 	for _, channel := range openChannels {
@@ -581,17 +583,23 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 			continue
 		}
 
-		// Now that we now this channel use usable, add it as a hop
-		// hint and the indexes we'll use later.
-		addHopHint(&hopHints, channel, edgePolicy)
+		// Now that we know this channel is usable, add it to the
+		// policies map and the indexes we'll use later.
+		bandwidthDelta := hopHintPolicies.addPolicy(
+			channel, edgePolicy, amtMSat,
+		)
 
 		hopHintChans[channel.FundingOutpoint] = struct{}{}
-		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+		totalHintBandwidth += bandwidthDelta
 	}
 
 	// If we have enough hop hints at this point, then we'll exit early.
 	// Otherwise, we'll continue to add more that may help out mpp users.
-	if len(hopHints) >= numMaxHophints {
+	if len(hopHintPolicies) >= numMaxHophints {
+		for _, p := range hopHintPolicies {
+			addHopHint(&hopHints, p.channel, p.policy)
+		}
+
 		return hopHints
 	}
 
@@ -625,16 +633,91 @@ func selectHopHints(amtMSat lnwire.MilliSatoshi, cfg *AddInvoiceConfig,
 			continue
 		}
 
-		// Include the route hint in our set of options that will be
-		// used when creating the invoice.
-		addHopHint(&hopHints, channel, remotePolicy)
+		// Include the route hint in our map of policies that will be
+		// used when create the hop hints that will be used for creating
+		// the invoice.
+		bandwidthDelta := hopHintPolicies.addPolicy(channel,
+			remotePolicy, amtMSat,
+		)
 
 		// As we've just added a new hop hint, we'll accumulate it's
 		// available balance now to update our tally.
 		//
 		// TODO(roasbeef): have a cut off based on min bandwidth?
-		totalHintBandwidth += channel.LocalCommitment.RemoteBalance
+		totalHintBandwidth += bandwidthDelta
+	}
+
+	for _, p := range hopHintPolicies {
+		addHopHint(&hopHints, p.channel, p.policy)
 	}
 
 	return hopHints
+}
+
+// hopHints holds the data that will be used when adding a new
+// hop hint to the payment request.
+type hopHint struct {
+	channel *channeldb.OpenChannel
+	policy  *channeldb.ChannelEdgePolicy
+}
+
+// policies is a map of peer public keys to hop hint data for
+// a channel with that peer.
+type policies map[route.Vertex]hopHint
+
+// addPolicy adds policy data to a policies map if it does not already
+// contain a policy for the given channel peer. If it does, then the old
+// policy will be replaced with an optimal policy to use for this connection
+// given a specific amount to send. The goal is to use a policy that maximizes
+// the probability of a successful forward in a non-strict forwarding context.
+// The return value is the possible bandwidth increase that results after
+// adding the new policy.
+func (p policies) addPolicy(channel *channeldb.OpenChannel,
+	newPolicy *channeldb.ChannelEdgePolicy,
+	amtMSat lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	// If the policies map does not already have a hopHint entry for this
+	// peer, add the new hop hint details to the map.
+	oldHint, ok := p[route.NewVertex(channel.IdentityPub)]
+	if !ok {
+		p[route.NewVertex(channel.IdentityPub)] = hopHint{
+			channel: channel,
+			policy:  newPolicy,
+		}
+		return channel.LocalCommitment.RemoteBalance
+	}
+
+	bestHopHint := oldHint
+	maxTimelock := oldHint.policy.TimeLockDelta
+
+	// Use the policy that results in the highest fee for this
+	// specific amount.
+	if oldHint.policy.ComputeFee(amtMSat) < newPolicy.ComputeFee(amtMSat) {
+		bestHopHint = hopHint{
+			channel: channel,
+			policy:  newPolicy,
+		}
+	}
+
+	// Track the maximum time lock of the two channels that are
+	// candidates for non-strict forwarding at the routing node.
+	if oldHint.policy.TimeLockDelta < newPolicy.TimeLockDelta {
+		maxTimelock = newPolicy.TimeLockDelta
+	}
+
+	bestHopHint.policy.TimeLockDelta = maxTimelock
+
+	p[route.NewVertex(channel.IdentityPub)] = bestHopHint
+
+	// Determine if the new policy's channel has a remote bandwidth that is
+	// larger than the old policy's channel and return the difference if
+	// there is an increase.
+	oldPolicyBandwidth := oldHint.channel.LocalCommitment.RemoteBalance
+	newPolicyBandwidth := bestHopHint.channel.LocalCommitment.RemoteBalance
+
+	if newPolicyBandwidth > oldPolicyBandwidth {
+		return newPolicyBandwidth - oldPolicyBandwidth
+	}
+
+	return lnwire.MilliSatoshi(0)
 }

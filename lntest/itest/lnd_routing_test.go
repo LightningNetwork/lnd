@@ -1208,23 +1208,169 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
-	const chanAmt = btcutil.Amount(100000)
+	const (
+		chanAmt              = btcutil.Amount(100000)
+		defaultFeeBase       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+	)
+	defaultMaxHtlc := calculateMaxHtlc(chanAmt)
+
+	// Launch notification clients for Alice and Bob nodes so that they
+	// can get notified when there are updates in channel policies.
+	aliceSub := subscribeGraphNotifications(ctxb, t, net.Alice)
+	defer close(aliceSub.quit)
+	bobSub := subscribeGraphNotifications(ctxb, t, net.Bob)
+	defer close(bobSub.quit)
 
 	// Throughout this test, we'll be opening a channel between Alice and
 	// several other parties.
 	//
-	// First, we'll create a private channel between Alice and Bob. This
-	// will be the only channel that will be considered as a routing hint
-	// throughout this test. We'll include a push amount since we currently
-	// require channels to have enough remote balance to cover the invoice's
-	// payment.
+	// First, we'll create a private channel between Alice and Bob.
+	// We'll include a push amount since we currently require channels to
+	// have enough remote balance to cover the invoice's payment.
 	ctxt, _ := context.WithTimeout(ctxb, channelOpenTimeout)
-	chanPointBob := openChannelAndAssert(
+	chanPointBob1 := openChannelAndAssert(
 		ctxt, t, net, net.Alice, net.Bob,
 		lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
 			Private: true,
+		},
+	)
+
+	listReq := &lnrpc.ListChannelsRequest{}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	listResp, err := net.Alice.ListChannels(ctxt, listReq)
+	if err != nil {
+		t.Fatalf("unable to retrieve alice's channels: %v", err)
+	}
+
+	// We'll need the short channel ID of the channel between Alice and Bob
+	// to make sure the routing hint is for this channel.
+	aliceBobChan1ID := listResp.Channels[0].ChanId
+
+	// In order to test the selection of channel policies for hop
+	// hints for non-strict forwarding on private channels, we open a
+	// second private channel between Alice and Bob.
+	ctxt, _ = context.WithTimeout(ctxb, channelOpenTimeout)
+	chanPointBob2 := openChannelAndAssert(
+		ctxt, t, net, net.Alice, net.Bob,
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+			Private: true,
+		},
+	)
+
+	// Get the short channel ID of this second channel between Alice and
+	// Bob.
+	listReq = &lnrpc.ListChannelsRequest{}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	listResp, err = net.Alice.ListChannels(ctxt, listReq)
+	require.NoError(t.t, err, "unable to retrieve alice's channels: %v")
+
+	var aliceBobChan2ID uint64
+	for _, c := range listResp.Channels {
+		if c.ChanId != aliceBobChan1ID {
+			aliceBobChan2ID = c.ChanId
+			break
+		}
+	}
+	require.NotEqual(t.t, 0, aliceBobChan2ID,
+		"channel between alice and bob not found")
+
+	// Ensure that all the initial policy values for both channels are as
+	// expected.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultFeeBase,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	graphSubs := []graphSubscription{aliceSub, bobSub}
+
+	for _, graphSub := range graphSubs {
+		waitForChannelUpdate(
+			t, graphSub,
+			[]expectedChanUpdate{
+				{net.Alice.PubKeyStr, expectedPolicy, chanPointBob1},
+				{net.Alice.PubKeyStr, expectedPolicy, chanPointBob2},
+				{net.Bob.PubKeyStr, expectedPolicy, chanPointBob1},
+				{net.Bob.PubKeyStr, expectedPolicy, chanPointBob2},
+			},
+		)
+	}
+
+	// Change the policy values of the second channel between Alice and
+	// Bob so that it now has the maximal policy value between the two
+	// channels in terms of fees. It is expected that only this channel and
+	// its policy values will be included in the invoice hop hint.
+	expectedPolicy = &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultFeeBase * 2,
+		FeeRateMilliMsat: testFeeBase * defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   defaultFeeBase * 2,
+		FeeRate:       float64(defaultFeeRate),
+		TimeLockDelta: defaultTimeLockDelta,
+		MaxHtlcMsat:   defaultMaxHtlc,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPointBob2,
+		},
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if _, err := net.Bob.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
+		t.Fatalf("unable to update chan policy: %v", err)
+	}
+
+	// Wait for Alice to receive the channel update from Bob.
+	waitForChannelUpdate(
+		t, aliceSub,
+		[]expectedChanUpdate{
+			{net.Bob.PubKeyStr, expectedPolicy, chanPointBob2},
+		},
+	)
+
+	// Update the first channel between Alice and Bob so that it has a
+	// larger CLTV delta than the second channel.
+	// Although we expect the first channel to be used as a hop hint due
+	// to its higher fee values, we expect this channels timelock delta
+	// to be included in the hop hint since it is the maximum of the two.
+	expectedPolicy = &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultFeeBase,
+		FeeRateMilliMsat: testFeeBase * defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta + 10,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	updateFeeReq = &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   defaultFeeBase,
+		FeeRate:       float64(defaultFeeRate),
+		TimeLockDelta: defaultTimeLockDelta + 10,
+		MaxHtlcMsat:   defaultMaxHtlc,
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPointBob1,
+		},
+	}
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	if _, err := net.Bob.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
+		t.Fatalf("unable to update chan policy: %v", err)
+	}
+
+	// Wait for Alice to receive the channel update from Bob.
+	waitForChannelUpdate(
+		t, aliceSub,
+		[]expectedChanUpdate{
+			{net.Bob.PubKeyStr, expectedPolicy, chanPointBob1},
 		},
 	)
 
@@ -1302,8 +1448,8 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 		"alice-eve",
 	}
 	aliceChans := []*lnrpc.ChannelPoint{
-		chanPointBob, chanPointCarol, chanPointBobCarol, chanPointDave,
-		chanPointEve,
+		chanPointBob1, chanPointBob2, chanPointCarol, chanPointBobCarol,
+		chanPointDave, chanPointEve,
 	}
 	for i, chanPoint := range aliceChans {
 		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
@@ -1328,7 +1474,7 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	// Alice and Bob should be the only channel used as a routing hint.
 	var predErr error
 	var decoded *lnrpc.PayReq
-	err := wait.Predicate(func() bool {
+	err = wait.Predicate(func() bool {
 		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 		resp, err := net.Alice.AddInvoice(ctxt, invoice)
 		if err != nil {
@@ -1366,35 +1512,27 @@ func testInvoiceRoutingHints(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 	chanID := hops[0].ChanId
 
-	// We'll need the short channel ID of the channel between Alice and Bob
-	// to make sure the routing hint is for this channel.
-	listReq := &lnrpc.ListChannelsRequest{}
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	listResp, err := net.Alice.ListChannels(ctxt, listReq)
-	if err != nil {
-		t.Fatalf("unable to retrieve alice's channels: %v", err)
-	}
-
-	var aliceBobChanID uint64
-	for _, channel := range listResp.Channels {
-		if channel.RemotePubkey == net.Bob.PubKeyStr {
-			aliceBobChanID = channel.ChanId
-		}
-	}
-
-	if aliceBobChanID == 0 {
-		t.Fatalf("channel between alice and bob not found")
-	}
-
-	if chanID != aliceBobChanID {
-		t.Fatalf("expected channel ID %d, got %d", aliceBobChanID,
+	if chanID != aliceBobChan2ID {
+		t.Fatalf("expected channel ID %d, got %d", aliceBobChan2ID,
 			chanID)
+	}
+
+	if hops[0].FeeBaseMsat != defaultFeeBase*2 {
+		t.Fatalf("expected base fee of %d, got %d",
+			defaultFeeBase*2, hops[0].FeeBaseMsat)
+	}
+
+	if hops[0].CltvExpiryDelta != defaultTimeLockDelta+10 {
+		t.Fatalf("expected cltv delta of %d, got %d",
+			defaultTimeLockDelta+10, hops[0].CltvExpiryDelta)
 	}
 
 	// Now that we've confirmed the routing hints were added correctly, we
 	// can close all the channels and shut down all the nodes created.
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
-	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointBob, false)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointBob1, false)
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointBob2, false)
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPointCarol, false)
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
