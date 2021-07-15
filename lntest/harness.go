@@ -823,7 +823,12 @@ func (n *NetworkHarness) ShutdownNode(node *HarnessNode) error {
 
 // KillNode kills the node (but won't wait for the node process to stop).
 func (n *NetworkHarness) KillNode(node *HarnessNode) error {
-	return node.kill()
+	if err := node.kill(); err != nil {
+		return err
+	}
+
+	delete(n.activeNodes, node.NodeID)
+	return nil
 }
 
 // StopNode stops the target node, but doesn't yet clean up its directories.
