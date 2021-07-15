@@ -489,8 +489,8 @@ func (cm *circuitMap) TrimOpenCircuits(chanID lnwire.ShortChannelID,
 	}, func() {})
 }
 
-// LookupByHTLC looks up the payment circuit by the outgoing channel and HTLC
-// IDs. Returns nil if there is no such circuit.
+// LookupCircuit queries the circuit map for the circuit identified by its
+// incoming circuit key. Returns nil if there is no such circuit.
 func (cm *circuitMap) LookupCircuit(inKey CircuitKey) *PaymentCircuit {
 	cm.mtx.RLock()
 	defer cm.mtx.RUnlock()

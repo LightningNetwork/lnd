@@ -375,9 +375,9 @@ func (s *Switch) GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
 	var (
-		nChan  <-chan *networkResult
-		err    error
-		outKey = CircuitKey{
+		nChan <-chan *networkResult
+		err   error
+		inKey = CircuitKey{
 			ChanID: hop.Source,
 			HtlcID: attemptID,
 		}
@@ -386,7 +386,7 @@ func (s *Switch) GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
 	// If the payment is not found in the circuit map, check whether a
 	// result is already available.
 	// Assumption: no one will add this payment ID other than the caller.
-	if s.circuits.LookupCircuit(outKey) == nil {
+	if s.circuits.LookupCircuit(inKey) == nil {
 		res, err := s.networkResults.getResult(attemptID)
 		if err != nil {
 			return nil, err
