@@ -66,6 +66,9 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16) (
 	cfg := embed.NewConfig()
 	cfg.Dir = path
 
+	cfg.Logger = "zap"
+	cfg.LogLevel = "error"
+
 	// To ensure that we can submit large transactions.
 	cfg.MaxTxnOps = 8192
 	cfg.MaxRequestBytes = 16384 * 1024

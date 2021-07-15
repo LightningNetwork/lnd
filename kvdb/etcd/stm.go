@@ -280,16 +280,37 @@ func runSTM(s *stm, apply func(STM) error) error {
 		return preApplyErr
 	}
 
+	// Make a copy of the read/write set keys here. The reason why we need
+	// to do this is because subsequent applies may change (shrink) these
+	// sets and so when we decrease reference counts in the commit queue in
+	// done(...) we'd potentially miss removing references which would
+	// result in queueing up transactions and contending DB access.
+	// Copying these strings is cheap due to Go's immutable string which is
+	// always a reference.
+	rkeys := make([]string, len(s.rset))
+	wkeys := make([]string, len(s.wset))
+
+	i := 0
+	for key := range s.rset {
+		rkeys[i] = key
+		i++
+	}
+
+	i = 0
+	for key := range s.wset {
+		wkeys[i] = key
+		i++
+	}
+
 	// Queue up the transaction for execution.
-	s.txQueue.Add(execute, s.rset, s.wset)
+	s.txQueue.Add(execute, rkeys, wkeys)
 
 	// Wait for the transaction to execute, or break if aborted.
 	select {
 	case <-done:
 	case <-s.options.ctx.Done():
+		return context.Canceled
 	}
-
-	s.txQueue.Done(s.rset, s.wset)
 
 	if s.options.commitStatsCallback != nil {
 		stats.Retries = retries
