@@ -346,9 +346,9 @@ func (c *mppTestContext) waitForChannels() {
 			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
 			err = node.WaitForNetworkChannelOpen(ctxt, chanPoint)
 			if err != nil {
-				c.t.Fatalf("(%d): timeout waiting for "+
+				c.t.Fatalf("(%v:%d): timeout waiting for "+
 					"channel(%s) open: %v",
-					node.NodeID, point, err)
+					node.Cfg.Name, node.NodeID, point, err)
 			}
 		}
 	}
