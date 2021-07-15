@@ -185,10 +185,20 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 			len(md["macaroon"]))
 	}
 
+	return svc.CheckMacAuth(
+		ctx, md["macaroon"][0], requiredPermissions, fullMethod,
+	)
+}
+
+// CheckMacAuth checks that the macaroon is not disobeying any caveats and is
+// authorized to perform the operation the user wants to perform.
+func (svc *Service) CheckMacAuth(ctx context.Context, macStr string,
+	requiredPermissions []bakery.Op, fullMethod string) error {
+
 	// With the macaroon obtained, we'll now decode the hex-string
 	// encoding, then unmarshal it from binary into its concrete struct
 	// representation.
-	macBytes, err := hex.DecodeString(md["macaroon"][0])
+	macBytes, err := hex.DecodeString(macStr)
 	if err != nil {
 		return err
 	}

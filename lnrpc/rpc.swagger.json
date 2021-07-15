@@ -1543,6 +1543,44 @@
         ]
       }
     },
+    "/v1/macaroon/checkpermissions": {
+      "get": {
+        "summary": "CheckMacaroonPermissions checks whether a request follows the constraints\nimposed on the macaroon and that the macaroon is authorized to follow the\nprovided permissions.",
+        "operationId": "CheckMacaroonPermissions",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcCheckMacPermResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response",
+            "schema": {
+              "$ref": "#/definitions/runtimeError"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "macaroon",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "fullMethod",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/macaroon/ids": {
       "get": {
         "summary": "lncli: `listmacaroonids`\nListMacaroonIDs returns all root key IDs that are in use.",
@@ -2732,6 +2770,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The root key ID used to create the macaroon, must be a positive integer."
+        },
+        "allow_external_permissions": {
+          "type": "boolean",
+          "format": "boolean",
+          "description": "Informs the RPC on whether to allow external permissions that LND is not\naware of."
         }
       }
     },
@@ -3474,6 +3517,15 @@
           "type": "string",
           "format": "byte",
           "description": "The set of data that was appended to this message, some of which we may\nnot actually know how to iterate or parse. By holding onto this data, we\nensure that we're able to properly validate the set of signatures that\ncover these new fields, and ensure we're able to make upgrades to the\nnetwork in a forwards compatible manner."
+        }
+      }
+    },
+    "lnrpcCheckMacPermResponse": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "format": "boolean"
         }
       }
     },

@@ -23,7 +23,7 @@ var bakeMacaroonCommand = cli.Command{
 	Category: "Macaroons",
 	Usage: "Bakes a new macaroon with the provided list of permissions " +
 		"and restrictions.",
-	ArgsUsage: "[--save_to=] [--timeout=] [--ip_address=] permissions...",
+	ArgsUsage: "[--save_to=] [--timeout=] [--ip_address=] [--allow_external_permissions] permissions...",
 	Description: `
 	Bake a new macaroon that grants the provided permissions and
 	optionally adds restrictions (timeout, IP address) to it.
@@ -68,6 +68,10 @@ var bakeMacaroonCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  "root_key_id",
 			Usage: "the numerical root key ID used to create the macaroon",
+		},
+		cli.BoolFlag{
+			Name:  "allow_external_permissions",
+			Usage: "whether permissions lnd is not familiar with are allowed",
 		},
 	},
 	Action: actionDecorator(bakeMacaroon),
@@ -148,8 +152,9 @@ func bakeMacaroon(ctx *cli.Context) error {
 	// Now we have gathered all the input we need and can do the actual
 	// RPC call.
 	req := &lnrpc.BakeMacaroonRequest{
-		Permissions: parsedPermissions,
-		RootKeyId:   rootKeyID,
+		Permissions:              parsedPermissions,
+		RootKeyId:                rootKeyID,
+		AllowExternalPermissions: ctx.Bool("allow_external_permissions"),
 	}
 	resp, err := client.BakeMacaroon(ctxc, req)
 	if err != nil {
