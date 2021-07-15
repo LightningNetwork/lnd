@@ -66,9 +66,11 @@ func (c *proxyConn) RemoteAddr() net.Addr {
 // around net.Conn in order to expose the actual remote address we're dialing,
 // rather than the proxy's address.
 func Dial(address, socksAddr string, streamIsolation bool,
-	timeout time.Duration) (net.Conn, error) {
+	directConnections bool, timeout time.Duration) (net.Conn, error) {
 
-	conn, err := dial(address, socksAddr, streamIsolation, timeout)
+	conn, err := dial(
+		address, socksAddr, streamIsolation, directConnections, timeout,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +89,18 @@ func Dial(address, socksAddr string, streamIsolation bool,
 	}, nil
 }
 
-// dial establishes a connection to the address via Tor's SOCKS proxy. Only TCP
-// is supported over Tor. The argument streamIsolation determines if we should
-// force stream isolation for this new connection. If we do, then this means
-// this new connection will use a fresh circuit, rather than possibly re-using
-// an existing circuit.
+// dial establishes a connection to the address via the provided TOR SOCKS
+// proxy. Only TCP traffic may be routed via Tor.
+//
+// streamIsolation determines if we should force stream isolation for this new
+// connection. If enabled, new connections will use a fresh circuit, rather than
+// possibly re-using an existing circuit.
+//
+// directConnections argument allows the dialer to directly connect to the
+// provided address if it does not represent an union service, skipping the
+// SOCKS proxy.
 func dial(address, socksAddr string, streamIsolation bool,
-	timeout time.Duration) (net.Conn, error) {
+	directConnections bool, timeout time.Duration) (net.Conn, error) {
 
 	// If we were requested to force stream isolation for this connection,
 	// we'll populate the authentication credentials with random data as
@@ -111,9 +118,22 @@ func dial(address, socksAddr string, streamIsolation bool,
 		}
 	}
 
+	clearDialer := &net.Dialer{Timeout: timeout}
+	if directConnections {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+
+		// The SOCKS proxy is skipped if the target
+		// is not an union address.
+		if !IsOnionHost(host) {
+			return clearDialer.Dial("tcp", address)
+		}
+	}
+
 	// Establish the connection through Tor's SOCKS proxy.
-	proxyDialer := &net.Dialer{Timeout: timeout}
-	dialer, err := proxy.SOCKS5("tcp", socksAddr, auth, proxyDialer)
+	dialer, err := proxy.SOCKS5("tcp", socksAddr, auth, clearDialer)
 	if err != nil {
 		return nil, err
 	}
@@ -139,10 +159,12 @@ func LookupHost(host, socksAddr string) ([]string, error) {
 // must have TCP resolution enabled for the given port.
 func LookupSRV(service, proto, name, socksAddr,
 	dnsServer string, streamIsolation bool,
-	timeout time.Duration) (string, []*net.SRV, error) {
+	directConnections bool, timeout time.Duration) (string, []*net.SRV, error) {
 
 	// Connect to the DNS server we'll be using to query SRV records.
-	conn, err := dial(dnsServer, socksAddr, streamIsolation, timeout)
+	conn, err := dial(
+		dnsServer, socksAddr, streamIsolation, directConnections, timeout,
+	)
 	if err != nil {
 		return "", nil, err
 	}

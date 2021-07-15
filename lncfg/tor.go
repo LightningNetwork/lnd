@@ -6,6 +6,7 @@ type Tor struct {
 	SOCKS             string `long:"socks" description:"The host:port that Tor's exposed SOCKS5 proxy is listening on"`
 	DNS               string `long:"dns" description:"The DNS server as host:port that Tor will use for SRV queries - NOTE must have TCP resolution enabled"`
 	StreamIsolation   bool   `long:"streamisolation" description:"Enable Tor stream isolation by randomizing user credentials for each connection."`
+	DirectConnections bool   `long:"directconnections" description:"Allow the node to establish direct connections to services not running behind Tor."`
 	Control           string `long:"control" description:"The host:port that Tor is listening on for Tor control connections"`
 	TargetIPAddress   string `long:"targetipaddress" description:"IP address that Tor should use as the target of the hidden service"`
 	Password          string `long:"password" description:"The password used to arrive at the HashedControlPassword for the control port. If provided, the HASHEDPASSWORD authentication method will be used instead of the SAFECOOKIE one."`
