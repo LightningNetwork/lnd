@@ -19,6 +19,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -288,6 +289,12 @@ type Config struct {
 	// watch the sub-set of the UTXO set (the set of active channels) that
 	// we need in order to properly maintain the channel graph.
 	ChainView chainview.FilteredChainView
+
+	// Notifier is a reference to the ChainNotifier, used to grab
+	// the latest blocks if the router is missing any.
+	Notifier chainntnfs.ChainNotifier
+
+	BlockNotifier *chainntnfs.BlockEpochEvent
 
 	// Payer is an instance of a PaymentAttemptDispatcher and is used by
 	// the router to send payment attempts onto the network, and receive
@@ -1139,60 +1146,85 @@ func (r *ChannelRouter) networkHandler() {
 
 			// We'll ensure that any new blocks received attach
 			// directly to the end of our main chain. If not, then
-			// we've somehow missed some blocks. We don't process
-			// this block as otherwise, we may miss on-chain
-			// events.
+			// we've somehow missed some blocks. Here we'll catch
+			// up the chain with the latest blocks.
 			currentHeight := atomic.LoadUint32(&r.bestHeight)
-			if chainUpdate.Height != currentHeight+1 {
+			if chainUpdate.Height == currentHeight+1 {
+				err := r.updateGraphWithClosedChannels(
+					chainUpdate, chainUpdate.Height,
+				)
+				if err != nil {
+					log.Errorf("unable to prune graph "+
+						"with closed channels: %v", err)
+				}
+			} else {
 				log.Errorf("out of order block: expecting "+
-					"height=%v, got height=%v", currentHeight+1,
-					chainUpdate.Height)
-				continue
-			}
+					"height=%v, got height=%v",
+					currentHeight+1, chainUpdate.Height)
 
-			// Once a new block arrives, we update our running
-			// track of the height of the chain tip.
-			blockHeight := uint32(chainUpdate.Height)
-			atomic.StoreUint32(&r.bestHeight, blockHeight)
-			log.Infof("Pruning channel graph using block %v (height=%v)",
-				chainUpdate.Hash, blockHeight)
+				if chainUpdate.Height > currentHeight+1 {
+					outdatedHash, err := r.cfg.Chain.GetBlockHash(
+						int64(currentHeight),
+					)
+					if err != nil {
+						log.Errorf("unable to retrieve" +
+							" outdated block hash")
+					}
 
-			// We're only interested in all prior outputs that have
-			// been spent in the block, so collate all the
-			// referenced previous outpoints within each tx and
-			// input.
-			var spentOutputs []*wire.OutPoint
-			for _, tx := range chainUpdate.Transactions {
-				for _, txIn := range tx.TxIn {
-					spentOutputs = append(spentOutputs,
-						&txIn.PreviousOutPoint)
+					outdatedBlock := &chainntnfs.BlockEpoch{
+						Height: int32(currentHeight),
+						Hash:   outdatedHash,
+					}
+
+					epochClient := r.cfg.BlockNotifier
+
+					// The block notifier client should be
+					// nil unless we're running a unit test.
+					if epochClient == nil {
+						epochClient, err = r.cfg.Notifier.RegisterBlockEpochNtfn(
+							outdatedBlock,
+						)
+						if err != nil {
+							log.Errorf("unable to" +
+								" register " +
+								"notifications")
+						}
+					}
+
+					blockDifference := int(chainUpdate.Height - currentHeight)
+
+					// We'll walk through all the outdated
+					// blocks and make sure we're able to
+					// update the graph with any closed
+					// channels from them.
+					for i := 0; i < blockDifference; i++ {
+						missingBlock := <-epochClient.Epochs
+
+						filteredBlock, err := r.cfg.ChainView.FilterBlock(
+							missingBlock.Hash,
+						)
+						if err != nil {
+							log.Errorf("unable to" +
+								" filter block")
+						}
+
+						err = r.updateGraphWithClosedChannels(
+							filteredBlock,
+							uint32(missingBlock.Height),
+						)
+						if err != nil {
+							log.Errorf("unable to"+
+								" prune channe"+
+								"ls: %v", err)
+						}
+					}
+				} else {
+					log.Infof("Skipping channel pruning "+
+						"since received block height "+
+						" %v was already processed.",
+						chainUpdate.Height)
 				}
 			}
-
-			// With the spent outputs gathered, attempt to prune
-			// the channel graph, also passing in the hash+height
-			// of the block being pruned so the prune tip can be
-			// updated.
-			chansClosed, err := r.cfg.Graph.PruneGraph(spentOutputs,
-				&chainUpdate.Hash, chainUpdate.Height)
-			if err != nil {
-				log.Errorf("unable to prune routing table: %v", err)
-				continue
-			}
-
-			log.Infof("Block %v (height=%v) closed %v channels",
-				chainUpdate.Hash, blockHeight, len(chansClosed))
-
-			if len(chansClosed) == 0 {
-				continue
-			}
-
-			// Notify all currently registered clients of the newly
-			// closed channels.
-			closeSummaries := createCloseSummaries(blockHeight, chansClosed...)
-			r.notifyTopologyChange(&TopologyChange{
-				ClosedChannels: closeSummaries,
-			})
 
 		// A new notification client update has arrived. We're either
 		// gaining a new client, or cancelling notifications for an
@@ -1251,6 +1283,57 @@ func (r *ChannelRouter) networkHandler() {
 			return
 		}
 	}
+}
+
+func (r *ChannelRouter) updateGraphWithClosedChannels(
+	chainUpdate *chainview.FilteredBlock, blockHeight uint32) error {
+
+	// Once a new block arrives, we update our running
+	// track of the height of the chain tip.
+
+	// blockHeight := uint32(chainUpdate.Height)
+	atomic.StoreUint32(&r.bestHeight, blockHeight)
+	log.Infof("Pruning channel graph using block %v (height=%v)",
+		chainUpdate.Hash, blockHeight)
+
+	// We're only interested in all prior outputs that have
+	// been spent in the block, so collate all the
+	// referenced previous outpoints within each tx and
+	// input.
+	var spentOutputs []*wire.OutPoint
+	for _, tx := range chainUpdate.Transactions {
+		for _, txIn := range tx.TxIn {
+			spentOutputs = append(spentOutputs,
+				&txIn.PreviousOutPoint)
+		}
+	}
+
+	// With the spent outputs gathered, attempt to prune
+	// the channel graph, also passing in the hash+height
+	// of the block being pruned so the prune tip can be
+	// updated.
+	chansClosed, err := r.cfg.Graph.PruneGraph(spentOutputs,
+		&chainUpdate.Hash, chainUpdate.Height)
+	if err != nil {
+		log.Errorf("unable to prune routing table: %v", err)
+		return err
+	}
+
+	log.Infof("Block %v (height=%v) closed %v channels",
+		chainUpdate.Hash, blockHeight, len(chansClosed))
+
+	if len(chansClosed) == 0 {
+		return err
+	}
+
+	// Notify all currently registered clients of the newly
+	// closed channels.
+	closeSummaries := createCloseSummaries(blockHeight, chansClosed...)
+	r.notifyTopologyChange(&TopologyChange{
+		ClosedChannels: closeSummaries,
+	})
+
+	return nil
 }
 
 // assertNodeAnnFreshness returns a non-nil error if we have an announcement in

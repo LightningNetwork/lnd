@@ -18,9 +18,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -44,6 +46,8 @@ type testCtx struct {
 	chain *mockChain
 
 	chainView *mockChainView
+
+	notifier *lnmock.ChainNotifier
 }
 
 func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
@@ -136,11 +140,19 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		MissionControl:    mc,
 	}
 
+	notifier := &lnmock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+
 	router, err := New(Config{
 		Graph:              graphInstance.graph,
 		Chain:              chain,
 		ChainView:          chainView,
 		Payer:              &mockPaymentAttemptDispatcherOld{},
+		Notifier:           notifier,
+		BlockNotifier:      nil,
 		Control:            makeMockControlTower(),
 		MissionControl:     mc,
 		SessionSource:      sessionSource,
@@ -171,6 +183,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		channelIDs: graphInstance.channelIDs,
 		chain:      chain,
 		chainView:  chainView,
+		notifier:   notifier,
 	}
 
 	cleanUp := func() {
@@ -1954,6 +1967,8 @@ func TestDisconnectedBlocks(t *testing.T) {
 		height := uint32(forkHeight) + uint32(i) + 1
 		ctx.chainView.notifyStaleBlock(block.BlockHash(), height,
 			block.Transactions)
+
+		time.Sleep(time.Millisecond * 500)
 	}
 	for i := uint32(1); i <= 15; i++ {
 		block := &wire.MsgBlock{
@@ -1964,9 +1979,10 @@ func TestDisconnectedBlocks(t *testing.T) {
 		ctx.chain.setBestBlock(int32(height))
 		ctx.chainView.notifyBlock(block.BlockHash(), height,
 			block.Transactions)
+
+		time.Sleep(time.Millisecond * 500)
 	}
 
-	// Give time to process new blocks
 	time.Sleep(time.Millisecond * 500)
 
 	// chanID2 should not be in the database anymore, since it is not
@@ -4250,4 +4266,90 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	sessionSource.AssertExpectations(t)
 	session.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
+}
+
+// TestBlockDifferenceFix tests if when the router is behind on blocks, the
+// router catches up to the best block head.
+func TestBlockDifferenceFix(t *testing.T) {
+	t.Parallel()
+
+	initialBlockHeight := uint32(0)
+	// Starting height here is set to 0, which is behind where we want to be.
+	ctx, cleanup := createTestCtxSingleNode(t, initialBlockHeight)
+	defer cleanup()
+
+	// Add initial block to our mini blockchain.
+	block := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{},
+	}
+	ctx.chain.addBlock(block, initialBlockHeight, rand.Uint32())
+
+	// Let's generate a new block of height 5, 5 above where our node is at.
+	newBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{},
+	}
+	newBlockHeight := uint32(5)
+
+	blockDifference := newBlockHeight - initialBlockHeight
+
+	buf := []byte{
+		0x79, 0xa6, 0x1a, 0xdb, 0xc6, 0xe5, 0xa2, 0xe1,
+		0x39, 0xd2, 0x71, 0x3a, 0x54, 0x6e, 0xc7, 0xc8,
+		0x75, 0x63, 0x2e, 0x75, 0xf1, 0xdf, 0x9c, 0x3f,
+		0xa6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
+
+	blockHash, err := chainhash.NewHash(buf)
+	if err != nil {
+		t.Fatalf("couldn't create block hash: %v", err)
+	}
+
+	outdatedBlock := &chainntnfs.BlockEpoch{
+		Height: int32(initialBlockHeight), Hash: blockHash,
+	}
+
+	blockNotifier, err := ctx.notifier.RegisterBlockEpochNtfn(outdatedBlock)
+	if err != nil {
+		t.Fatalf("unable to register to receive block epoch notifications: %v", err)
+	}
+
+	ctx.router.cfg.BlockNotifier = blockNotifier
+
+	ctx.chain.addBlock(newBlock, newBlockHeight, rand.Uint32())
+	ctx.chain.setBestBlock(int32(newBlockHeight))
+	ctx.chainView.notifyBlock(block.BlockHash(), newBlockHeight,
+		[]*wire.MsgTx{})
+
+	// At this point, the chain notifier should have noticed that we're
+	// behind on blocks, and will send the n missing blocks that we
+	// need to the client's epochs channel. Let's replicate this
+	// functionality.
+	for i := 0; i < int(blockDifference); i++ {
+		currBlockHeight := int32(i + 1)
+
+		nonce := rand.Uint32()
+
+		newBlock := &wire.MsgBlock{
+			Transactions: []*wire.MsgTx{},
+			Header:       wire.BlockHeader{Nonce: nonce},
+		}
+		ctx.chain.addBlock(newBlock, uint32(currBlockHeight), rand.Uint32())
+
+		currHash := newBlock.Header.BlockHash()
+
+		newEpoch := &chainntnfs.BlockEpoch{
+			Height: currBlockHeight,
+			Hash:   &currHash,
+		}
+
+		ctx.notifier.EpochChan <- newEpoch
+	}
+
+	// Wait for router to process these new block notifications.
+	time.Sleep(2 * time.Second)
+
+	// Then router height should be updated to the latest block.
+	if ctx.router.bestHeight != newBlockHeight {
+		t.Fatalf("height should have been updated to %v, instead got %v", newBlockHeight, ctx.router.bestHeight)
+	}
 }

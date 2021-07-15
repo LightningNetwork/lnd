@@ -211,6 +211,7 @@ func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) 
 	m.blockIndex[height] = hash
 	m.Unlock()
 }
+
 func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
 	m.RLock()
 	defer m.RUnlock()
@@ -317,7 +318,9 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 		return nil, err
 	}
 
-	filteredBlock := &chainview.FilteredBlock{}
+	filteredBlock := &chainview.FilteredBlock{
+		Hash: *blockHash,
+	}
 	for _, tx := range block.Transactions {
 		for _, txIn := range tx.TxIn {
 			prevOp := txIn.PreviousOutPoint
